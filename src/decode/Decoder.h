@@ -4,6 +4,8 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
+#include <string>
 #include <vector>
 
 #include "bitstream/AnnexB.h"
@@ -15,7 +17,14 @@ namespace xdb {
 /// pixels 拥有图像数据，释放后端的输出缓冲后仍可读取。当前后端将像素复制或
 /// 转换到此缓冲；row_pitch 表示目标行跨度，调用方不能按后端的源行跨度寻址。
 /// 当前输出为每像素 4 字节的 BGRA，不包含后端的纹理或像素缓冲句柄。
+struct FrameGeometry {
+    int width = 0, height = 0;
+    std::string orientation;
+    uint64_t serial = 0;
+};
+
 struct Frame {
+    std::optional<FrameGeometry> geometry;
     std::vector<uint8_t> pixels;
     uint32_t width = 0;
     uint32_t height = 0;

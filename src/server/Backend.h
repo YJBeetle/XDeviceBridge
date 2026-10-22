@@ -7,6 +7,7 @@
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <set>
+#include <map>
 namespace xdb::server {
 using Json = nlohmann::json;
 using Cancel = std::function<bool()>;
@@ -23,6 +24,7 @@ std::optional<remote::Device> open_device(const std::string &, const std::string
 struct Registry {
     std::mutex mutex;
     std::set<std::string> devices;
+    std::map<std::string, std::weak_ptr<void>> sessions;
     bool acquire(const std::string &udid) {
         std::lock_guard lock(mutex);
         if (devices.contains("@pairing") || (udid == "@pairing" && !devices.empty()))
@@ -57,7 +59,7 @@ class Backend {
     struct Session;
     Registry &registry_;
     std::string directory_, lease_;
-    std::unique_ptr<Session> session_;
+    std::shared_ptr<Session> session_;
     void close();
 };
 } // namespace xdb::server

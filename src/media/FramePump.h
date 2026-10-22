@@ -4,6 +4,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <cstdio>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <span>
@@ -47,6 +48,7 @@ class FramePump {
 public:
     struct Options {
         uint32_t display_id = 1;
+        std::function<std::optional<FrameGeometry>()> frame_geometry;
         /// 非空时将 Annex-B 码流录制到文件。
         std::string record_path;
         /// 可选容器消费者，由拥有者管理。必须在本泵停止并 join 后再销毁；

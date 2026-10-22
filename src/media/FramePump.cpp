@@ -675,6 +675,7 @@ void FramePump::loop() {
             reviving_ = false;  // 新会话已输出第一帧，结束恢复等待。
             // 交换两个帧缓冲区，下一次解码复用上一帧的内存，避免 move 后
             // 解码目标失去缓冲区并重新分配。尺寸变化仍由解码器处理。
+            publishing_.geometry = options_.frame_geometry ? options_.frame_geometry() : std::nullopt;
             std::swap(frame_, publishing_);
             width_ = static_cast<int>(frame_.width);
             height_ = static_cast<int>(frame_.height);

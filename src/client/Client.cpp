@@ -3,6 +3,8 @@
 #include "ipc/Wire.h"
 #include "xdb/xdb.h"
 #include <atomic>
+#include <charconv>
+#include <cstdlib>
 #include <memory>
 #include <mutex>
 #include <nlohmann/json.hpp>
@@ -25,7 +27,22 @@ const char *xdb_last_error() { return diagnostic.c_str(); }
 xdb_client *xdb_client_connect(uint16_t port, const char *token, xdb_event_callback event, void *userdata) {
     diagnostic.clear();
     try {
-        if (!port || !token || !*token) {
+        if (!port) {
+            port = 17423;
+            if (const char *value = std::getenv("XDB_PORT"); value && *value) {
+                unsigned parsed = 0;
+                auto end = value + std::char_traits<char>::length(value);
+                auto result = std::from_chars(value, end, parsed);
+                if (result.ec != std::errc{} || result.ptr != end || !parsed || parsed > 65535) {
+                    diagnostic = "Invalid XDB_PORT";
+                    return nullptr;
+                }
+                port = static_cast<uint16_t>(parsed);
+            }
+        }
+        if (!token || !*token)
+            token = std::getenv("XDB_TOKEN");
+        if (!token || !*token) {
             diagnostic = "port and server token are required";
             return nullptr;
         }

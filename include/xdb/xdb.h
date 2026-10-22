@@ -37,6 +37,7 @@ XDB_SERVER_API uint16_t xdb_server_port(const xdb_server *server);
 XDB_SERVER_API const char *xdb_server_token(const xdb_server *server);
 XDB_SERVER_API void xdb_server_stop(xdb_server *server);
 // Client library never launches a process or loads the device backend.
+// Port 0 uses XDB_PORT or 17423. Empty token uses XDB_TOKEN.
 XDB_CLIENT_API xdb_client *xdb_client_connect(uint16_t port, const char *token, xdb_event_callback event,
                                               void *userdata);
 // One outstanding request per client. Response owns JSON and any binary payload.
