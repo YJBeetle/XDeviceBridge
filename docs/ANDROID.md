@@ -57,7 +57,10 @@ cmake -S . -B build-android-client -G Ninja \
 cmake --build build-android-client
 ```
 
-For a server, supply target-built OpenSSL/curl, pugixml and optional FFmpeg through
+The arm64 dependency recipe is `tools/android-deps.sh <prefix>`; it builds pinned
+OpenSSL/curl and HEVC/PNG FFmpeg libraries and prints server configure flags.
+Audio/container support is disabled in that recipe. Supply target-built
+OpenSSL/curl, pugixml and optional FFmpeg through
 the NDK search roots/CMake package variables. Host pkg-config metadata is not used
 when cross-compiling. HEVC needs avcodec/avutil/swscale; audio decoding separately
 needs swresample. Using target libraries from a different architecture is invalid.

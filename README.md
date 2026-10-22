@@ -6,7 +6,8 @@ or on-device automation application is required for the implemented services.
 
 **Early development:** the protocol and API are experimental. This first import
 has local macOS tests and Android cross-build checks; it is not a stable release.
-scrctl and MaaFramework are intended consumers and have not yet switched to this backend.
+scrctl and MaaFramework use the lightweight client; device services run in xdb Server.
+See [validation boundaries](docs/VALIDATION.md) for tested behavior.
 
 ## Architecture
 

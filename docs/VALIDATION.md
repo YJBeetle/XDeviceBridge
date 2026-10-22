@@ -18,3 +18,20 @@ No new successful physical-device behavior is implied by the scrctl source origi
 Before a stable release: validate actual iPhone pairing, DDI preparation, PNG/video
 geometry and input through the new protocol; test desktop/Android packaging and
 lifetimes; add CI for supported targets; migrate consumers after protocol review.
+
+## Consumer migration checks
+
+- 38 native backend/IPC tests pass, covering transport cancellation, HTTP/2/XPC,
+  pairing identity, DDI selection/download/TSS/mount fixtures, RTP/frame geometry,
+  audio decoding/regulation and recording finalization.
+- MaaFramework's real C ABI passes deterministic server tests for discovery,
+  BGRA/PNG capture and fallback, crop/rotation, touch/key/text and application RPCs.
+  Python's optional-symbol and management boundaries also pass offline tests.
+- scrctl's actual executable passes deterministic server tests for background
+  capture, explicit clipboard, ASCII, attached PCM delivery and encoded recording.
+- MaaFramework's Android arm64 control unit and Toolkit cross-build without device
+  cryptography/media dependencies. This is not Android runtime acceptance.
+- An existing authorized scrctl credential was imported into a disposable server
+  directory. Wi-Fi discovery found the iPhone, but pair-verify rejected the record
+  because the device Identifier did not match. PNG/video/input acceptance through
+  the new server remains unverified; no device pairing or DDI was changed.

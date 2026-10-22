@@ -129,3 +129,9 @@ uses `XDB_PORT` or 17423 and an empty token uses `XDB_TOKEN`. No process is star
 implicitly. `include/xdb/client.hpp` is an optional header-only C++ adapter; the
 binary boundary remains the C API. GUI clients can use that API directly for
 `pair` / `ddi.prepare`; device credentials never leave the server.
+
+`media.status.recording_error` reports a recording failure separately from the
+transport/media `error`, so decoded mirroring may continue. `media.finish` still
+returns the recording failure. The server holds the requested audio startup
+preroll; clients should keep only a small output queue instead of buffering that
+duration again.

@@ -110,7 +110,8 @@ struct Backend::Session {
     Registry &registry;
     std::string udid, attachment;
     std::shared_mutex media_mutex;
-    std::mutex control_mutex;
+    std::mutex control_mutex, pcm_mutex;
+    bool pcm_started = false;
     remote::Device device;
     std::unique_ptr<remote::DisplayWatcher> display;
     std::unique_ptr<hid::Service> hid;
@@ -484,11 +485,11 @@ Reply Backend::handle(const std::string &method, const Json &p, const Event &eve
     if (method == "media.status") {
         Reply r;
         std::string terminal = s.device.stack() ? s.device.stack()->pump_error() : std::string();
-        if (s.recorder && !s.recorder->error().empty())
-            terminal = s.recorder->error();
+        const std::string recording_error = s.recorder ? s.recorder->error() : std::string();
         if (!s.video && s.audio && !s.audio->terminal_error().empty())
             terminal = s.audio->terminal_error();
-        r.result = {{"error", terminal}, {"video_unusable", s.video && s.video->video_unusable()}};
+        r.result = {{"error", terminal}, {"video_unusable", s.video && s.video->video_unusable()},
+                    {"recording_error", recording_error}};
         return r;
     }
     if (method == "recording.configure") {
@@ -529,6 +530,7 @@ Reply Backend::handle(const std::string &method, const Json &p, const Event &eve
             o.recorder = s.recorder.get();
             o.stop_device_on_exit = !s.video;
             s.audio = media::AudioPump::start(s.device, o, error);
+            s.pcm_started = false;
         }
         if (!s.audio)
             return fail(error);
@@ -546,7 +548,13 @@ Reply Backend::handle(const std::string &method, const Json &p, const Event &eve
         if (!s.audio || !s.audio->decoding_enabled())
             return Reply::failure("invalid_state", "PCM audio is not running");
         size_t frames = bounded(p, "frames", 960, 1, 48000);
+        std::lock_guard pcm_lock(s.pcm_mutex);
         Reply r;
+        if (!s.pcm_started && s.audio->buffered_frames() < s.audio->preroll_frames()) {
+            r.result = {{"buffered", s.audio->buffered_frames()}, {"frames", 0}};
+            return r;
+        }
+        s.pcm_started = true;
         r.result = {{"buffered", s.audio->buffered_frames()}};
         std::vector<int16_t> pcm(frames * s.audio->channels());
         frames = s.audio->read(pcm.data(), frames);
