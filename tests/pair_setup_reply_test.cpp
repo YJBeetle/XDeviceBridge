@@ -427,9 +427,9 @@ void run_pair_setup_reply_tests(void (*check)(bool, const char *)) {
                       info.find("remotepairing_serial_number")->str == metadata->serial_number,
                   "真实 M5 密文携带平台型号与稳定 XDB 显示序列号");
             check(info.find("accountID") && info.find("accountID")->str == "HOST-IDENTIFIER" &&
-                      info.find("name") && info.find("name")->str == "host" &&
+                      info.find("name") && info.find("name")->str == host_display_name("host") &&
                       result.record.host_identifier == "HOST-IDENTIFIER",
-                  "显示 metadata 不改变已签名 Identifier、accountID 或原显示名称");
+                  "显示名称使用 xdb 前缀且不改变已签名 Identifier 或 accountID");
         }
         {
             MemStream io(Phase::VerifyM4, Form::Normal);

@@ -186,6 +186,9 @@ int main() {
     tls_write_path();
     still_works_as_a_socket();
     readable_wait_results();
+    // The fixture peers below use OpenSSL's raw socket BIO. The production
+    // send/BIO signal behavior was checked above in children with SIG_DFL.
+    ::signal(SIGPIPE, SIG_IGN);
     xdb_test::tls_failures(check);
     xdb_test::tls_psk_moves(check);
     xdb_test::startup_tls_budget(check);
