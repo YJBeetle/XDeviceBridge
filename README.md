@@ -29,6 +29,10 @@ The server runs as a standalone process on desktop or as `libxdb_server` hosted 
 an application. Android applications can start the same server on a native thread;
 the client still uses the same protocol.
 
+Pairing displays the host as `xdb - <hostname>` (Android uses its device model),
+the model as `xdb - <hardware model>`, and a stable display serial `XDB-<16 hex digits>`.
+These labels do not replace the cryptographic pairing identity.
+
 The server owns device pairing records. Its API returns a UDID, never the private
 pairing material. Each Android application supplies its own private data directory;
 there is no shared system daemon or cross-application credential store.

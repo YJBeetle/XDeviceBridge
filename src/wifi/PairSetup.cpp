@@ -168,12 +168,7 @@ PairSetupResult pair_setup(Rppairing &channel, std::string_view host_identifier,
         return fail();
     }
     const Bytes host_public(host_key->pub.begin(), host_key->pub.end());
-    // pairingData 的主机显示名去除末尾 .local，与已有客户端样本保持一致。
-    // 这里只调整显示名，不修改 host_identifier。
-    std::string host_label(hostname);
-    if (host_label.size() > 6 && host_label.compare(host_label.size() - 6, 6, ".local") == 0) {
-        host_label.erase(host_label.size() - 6);
-    }
+    const auto host_label = host_display_name(hostname);
 
     // 1) 根据选项先执行 verify 探测，或直接以 attemptPairVerify=false 握手。
     // 两条路径都在任何 pairingData 前检查 allowsPairSetup，并保存设备广播标识。

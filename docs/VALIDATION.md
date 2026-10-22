@@ -35,3 +35,14 @@ lifetimes; add CI for supported targets; migrate consumers after protocol review
   directory. Wi-Fi discovery found the iPhone, but pair-verify rejected the record
   because the device Identifier did not match. PNG/video/input acceptance through
   the new server remains unverified; no device pairing or DDI was changed.
+
+An existing PiCli record was converted in a temporary private copy and successfully
+verified against iPhone14,4 / iOS 27.0.1 over Wi-Fi. The server returned a PNG and
+decoded a 1136×2464 HEVC frame. The real scrctl executable then consumed two frames
+headlessly, and the real MaaFramework C ABI captured through both Stream and
+ScreenshotService (cropped native display 1125×2436). This did not test input,
+audio listening, fresh pairing, DDI installation or Android device runtime.
+
+Pairing label changes additionally pass the host metadata/serial, pairing workflow
+and IPC tests; Android arm64 server recompilation succeeds. These do not assert
+that an already paired iPhone updates its cached display labels.

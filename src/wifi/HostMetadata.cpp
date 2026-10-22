@@ -9,8 +9,11 @@
 #ifdef __APPLE__
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/IOKitLib.h>
+#include <sys/sysctl.h>
 #elif defined(_WIN32)
 #include <windows.h>
+#elif defined(__ANDROID__)
+#include <sys/system_properties.h>
 #endif
 
 namespace xdb::wifi {
@@ -91,14 +94,54 @@ std::optional<PlatformIdentity> platform_identity() {
 } // namespace
 
 std::string_view host_model() {
+    static const std::string model = [] {
+        std::string value;
 #ifdef __APPLE__
-    return "xdb-macos";
+        std::array<char, 256> buffer{};
+        size_t size = buffer.size();
+        if (sysctlbyname("hw.model", buffer.data(), &size, nullptr, 0) == 0)
+            value = buffer.data();
 #elif defined(_WIN32)
-    return "xdb-windows";
+        std::array<wchar_t, 256> buffer{};
+        DWORD size = sizeof(buffer);
+        if (RegGetValueW(HKEY_LOCAL_MACHINE, L"HARDWARE\\DESCRIPTION\\System\\BIOS",
+                         L"SystemProductName", RRF_RT_REG_SZ, nullptr, buffer.data(), &size) == ERROR_SUCCESS) {
+            const int bytes = WideCharToMultiByte(CP_UTF8, 0, buffer.data(), -1, nullptr, 0, nullptr, nullptr);
+            if (bytes > 1) {
+                value.resize(bytes);
+                WideCharToMultiByte(CP_UTF8, 0, buffer.data(), -1, value.data(), bytes, nullptr, nullptr);
+                value.pop_back();
+            }
+        }
+#elif defined(__ANDROID__)
+        std::array<char, PROP_VALUE_MAX> buffer{};
+        if (__system_property_get("ro.product.model", buffer.data()) > 0)
+            value = buffer.data();
 #elif defined(__linux__)
-    return "xdb-linux";
+        std::ifstream file("/sys/class/dmi/id/product_name");
+        std::array<char, 256> buffer{};
+        if (file.getline(buffer.data(), buffer.size()))
+            value = buffer.data();
+#endif
+        const auto first = value.find_first_not_of(" \t\r\n");
+        if (first == std::string::npos)
+            return std::string("xdb - Unknown");
+        value = value.substr(first, value.find_last_not_of(" \t\r\n") - first + 1);
+        return "xdb - " + value;
+    }();
+    return model;
+}
+
+std::string host_display_name(std::string_view hostname) {
+#ifdef __ANDROID__
+    return std::string(host_model());
 #else
-    return "xdb";
+    std::string value(hostname);
+    if (value.ends_with(".local"))
+        value.resize(value.size() - 6);
+    if (value.empty())
+        value = "Unknown";
+    return value.starts_with("xdb - ") ? value : "xdb - " + value;
 #endif
 }
 
