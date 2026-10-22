@@ -183,6 +183,7 @@ Reply Backend::handle(const std::string &method, const Json &p, const Event &eve
         auto value = remote::discover_devices(o);
         Reply r;
         r.result = discovery_json(value);
+        r.result["capabilities"] = {{"video_decode", kHaveDecoder}};
         return r;
     }
     if (method == "pair") {
@@ -371,6 +372,11 @@ Reply Backend::handle(const std::string &method, const Json &p, const Event &eve
     if (!session_)
         return Reply::failure("not_connected", "Open a device session first");
     auto &s = *session_;
+    if (method == "network.debug") {
+        if (auto *stack = s.device.stack())
+            stack->set_net_debug(p.value("enabled", false));
+        return {};
+    }
     if (method == "device.info") {
         Reply r;
         r.result = {{"udid", s.device.udid()},
@@ -504,11 +510,11 @@ Reply Backend::handle(const std::string &method, const Json &p, const Event &eve
             if (!s.display)
                 s.display = remote::DisplayWatcher::start(s.device, 1, error);
             auto g = geometry().value("orientation", std::string());
-            if (g == "landscapeLeft")
+            if (g == "landscapeLeft" || g == "rot90")
                 o.video_orientation = 90;
-            else if (g == "landscapeRight")
+            else if (g == "landscapeRight" || g == "rot270")
                 o.video_orientation = 270;
-            else if (g == "portraitUpsideDown")
+            else if (g == "portraitUpsideDown" || g == "rot180")
                 o.video_orientation = 180;
         }
         s.recorder = media::Recorder::start(o, error);
@@ -564,6 +570,9 @@ Reply Backend::handle(const std::string &method, const Json &p, const Event &eve
             options.decode_video = p.value("decode", true);
             options.recorder = s.recorder.get();
             options.record_path = p.value("record_path", std::string());
+            if (!options.record_path.empty() && !std::filesystem::u8path(options.record_path).is_absolute())
+                return Reply::failure("invalid_params",
+                                      "Raw recording path must be absolute on the server host");
             options.silence_restart_ms = p.value("restart_on_silence", true) ? 3000 : 0;
             options.frame_geometry = [&s]() -> std::optional<FrameGeometry> {
                 if (!s.display)
@@ -575,6 +584,11 @@ Reply Backend::handle(const std::string &method, const Json &p, const Event &eve
         }
         if (!s.video)
             return fail(error);
+        if (!p.value("decode", true) && !s.video->wait_ready(5000)) {
+            error = s.video->capture_error();
+            s.video.reset();
+            return fail(error.empty() ? "No valid recording IDR within five seconds" : error);
+        }
         return {};
     }
     if (method == "video.stop") {

@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: LGPL-3.0-only
 import ctypes as C
+import os
 import json
 from pathlib import Path
 import socket
@@ -79,10 +80,16 @@ with tempfile.TemporaryDirectory(prefix='xdb-ipc-') as tmp:
         assert c, client.xdb_last_error()
         try:
             assert request(c,'server.info')['result']['protocol']==1
+            os.environ['XDB_PORT'] = str(port)
+            os.environ['XDB_TOKEN'] = TOKEN.decode()
+            default_client = client.xdb_client_connect(0,None,None,None)
+            assert default_client, client.xdb_last_error()
+            client.xdb_client_destroy(default_client)
             assert request(c,'devices',{'transport':'wifi','timeout_ms':0})['ok']
             assert not request(c,'pairing.import',{'record':'invalid'})['ok']
             assert not Path(data.decode()).exists(), 'invalid import wrote persistent state'
-            assert not request(c,'connection.open',{'udid':''})['ok']
+            assert not request(c,'connection.open',{'udid':'offline','transport':'invalid'})['ok']
+            assert not request(c,'connection.attach',{'attachment':'invalid'})['ok']
             assert request(c,'connection.close')['ok']
             assert not request(c,'screenshot')['ok']
             assert request(c,'server.info')['ok'], 'failed operation poisoned connection'

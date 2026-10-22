@@ -87,3 +87,45 @@ to panel coordinates; absent metadata must not be invented.
 A response owns its pixels until `xdb_response_destroy`. There is no FFmpeg,
 OpenCV, C++ object or GPU handle in the C ABI. Future encoded media negotiation
 must be explicit; the current implementation does not send HEVC/AAC payloads.
+
+## Consumer sessions and additional methods
+
+`connection.open` accepts `transport` (`auto`, `usb`, `wifi`) and returns a random,
+connection-private `attachment` capability. An authenticated client may call
+`connection.attach` with it on another socket, allowing audio/video polling and
+control to proceed independently. Keep this capability private. The session and
+device lease live until its last attached connection closes. `connection.close`
+only detaches the requesting client; it does not invalidate another attachment.
+
+- `display.info`: subscribes to display updates and returns panel geometry.
+- `display.rotate`: queries the current cardinal orientation, requests the opposite
+  portrait/landscape orientation once, and verifies the returned state. It does not
+  unlock the device's orientation policy or retry an uncertain mutation.
+- `clipboard.set` / `clipboard.get`: explicit clipboard access (`text`, <=256 KiB
+  on write). This is not automatic text-input fallback.
+- `recording.configure`: before media starts, provide an absolute server-host `path`,
+  `format` (`mp4`/`mkv`), `video`, `audio`, `orientation`, and optionally
+  `orientation_from_device`. The file is written by the server. Container media
+  remains encoded; it is not reconstructed from the IPC image/audio bodies.
+- `video.start`: also accepts `decode` (default true), `record_path` (raw HEVC,
+  absolute server path) and `restart_on_silence` (default true). Encoded-only capture
+  must become ready with a checked recording IDR before this call succeeds.
+- `video.frame`: `allow_cached` permits reuse of a healthy latest frame after its
+  wait expires. Geometry is captured with the published frame, not read later.
+- `screenshot`: `format: "bgra"` requests server-side PNG decoding; the default
+  remains PNG. Both include geometry; a changing display fails the capture.
+- `audio.start`: `decode`, `duplicate`, `buffer_ms` (0..1000); returns sample rate,
+  channels and preroll frames. `audio.read` requests 1..48000 interleaved frames,
+  returning raw **signed 16-bit little-endian** PCM and its actual frame count.
+  Poll on a dedicated attached socket; never make a network call in a sound callback.
+- `audio.stop`: stops audio only. `media.finish`: joins producers, finalizes
+  recordings, then stops device audio. Errors propagate to the caller.
+- `media.status`: terminal `error` and `video_unusable` (for screenshot fallback).
+- `network.debug`: `enabled` controls server-side tunnel diagnostics.
+
+`devices` includes `capabilities.video_decode`; clients should derive Stream
+availability from the server, not their local libraries. In the C API, port 0
+uses `XDB_PORT` or 17423 and an empty token uses `XDB_TOKEN`. No process is started
+implicitly. `include/xdb/client.hpp` is an optional header-only C++ adapter; the
+binary boundary remains the C API. GUI clients can use that API directly for
+`pair` / `ddi.prepare`; device credentials never leave the server.

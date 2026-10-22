@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 #pragma once
 #include "xdb.h"
+#include <atomic>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
@@ -34,6 +35,7 @@ class Client {
         auto text = params.dump();
         if (!xdb_client_request(handle_, method, text.c_str(), &raw)) {
             error = xdb_last_error();
+            out.code = "transport_error";
             return false;
         }
         std::unique_ptr<xdb_response, decltype(&xdb_response_destroy)> response(raw, xdb_response_destroy);
@@ -57,13 +59,10 @@ class Client {
         return request(method, params, out, error);
     }
     void interrupt() { xdb_client_interrupt(handle_); }
-    void close() {
-        xdb_client_destroy(handle_);
-        handle_ = nullptr;
-    }
+    void close() { xdb_client_destroy(handle_.exchange(nullptr)); }
     bool connected() const { return handle_ != nullptr; }
 
   private:
-    xdb_client *handle_ = nullptr;
+    std::atomic<xdb_client *> handle_{nullptr};
 };
 } // namespace xdb::client
