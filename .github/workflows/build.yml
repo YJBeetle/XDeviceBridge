@@ -8,7 +8,7 @@ jobs:
         os: [ubuntu-24.04, macos-15, windows-2025]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Configure client only
         run: cmake -S . -B build -DXDB_BUILD_SERVER=OFF -DXDB_BUILD_CLI=OFF -DXDB_BUILD_TESTS=OFF
       - name: Build
@@ -16,7 +16,7 @@ jobs:
   server:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install dependencies
         run: |
           sudo apt-get update
