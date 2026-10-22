@@ -1,0 +1,18 @@
+// SPDX-License-Identifier: LGPL-3.0-only
+#pragma once
+#include "transport/Socket.h"
+#include <cstdint>
+#include <string>
+#include <vector>
+namespace xdb::ipc {
+inline constexpr uint32_t protocol_version = 1;
+inline constexpr size_t max_json = 1024 * 1024;
+inline constexpr size_t max_binary = 64 * 1024 * 1024;
+struct Message {
+    std::string json;
+    std::vector<uint8_t> binary;
+};
+bool read(transport::Socket &socket, Message &out, std::string &error);
+bool write(transport::Socket &socket, const Message &message, std::string &error);
+transport::Socket connect(uint16_t port, std::string &error);
+} // namespace xdb::ipc

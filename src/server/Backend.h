@@ -1,0 +1,63 @@
+// SPDX-License-Identifier: LGPL-3.0-only
+#pragma once
+#include "ipc/Wire.h"
+#include "remote/Device.h"
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <nlohmann/json.hpp>
+#include <set>
+namespace xdb::server {
+using Json = nlohmann::json;
+using Cancel = std::function<bool()>;
+using Event = std::function<void(const std::string &, const Json &)>;
+struct PrepareOptions {
+    std::string serial, wifi, ddi_directory, data_directory;
+    uint16_t wifi_port = 49152;
+    bool replace_ddi = false;
+    int ddi_download_timeout = 300, ddi_install_timeout = 300;
+};
+bool prepare_ddi(const PrepareOptions &, std::string &, const Event &, const Cancel &);
+std::optional<remote::Device> open_device(const std::string &, const std::string &, std::string &, uint16_t,
+                                          const Cancel &, const std::string &);
+struct Registry {
+    std::mutex mutex;
+    std::set<std::string> devices;
+    bool acquire(const std::string &udid) {
+        std::lock_guard lock(mutex);
+        if (devices.contains("@pairing") || (udid == "@pairing" && !devices.empty()))
+            return false;
+        return devices.insert(udid).second;
+    }
+    void release(const std::string &udid) {
+        std::lock_guard lock(mutex);
+        devices.erase(udid);
+    }
+};
+struct Reply {
+    bool ok = true;
+    Json result = Json::object();
+    std::string code, error;
+    std::vector<uint8_t> binary;
+    static Reply failure(std::string code, std::string message) {
+        Reply r;
+        r.ok = false;
+        r.code = std::move(code);
+        r.error = std::move(message);
+        return r;
+    }
+};
+class Backend {
+  public:
+    Backend(Registry &, std::string data_directory);
+    ~Backend();
+    Reply handle(const std::string &method, const Json &params, const Event &, const Cancel &);
+
+  private:
+    struct Session;
+    Registry &registry_;
+    std::string directory_, lease_;
+    std::unique_ptr<Session> session_;
+    void close();
+};
+} // namespace xdb::server

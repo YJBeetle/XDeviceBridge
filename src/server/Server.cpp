@@ -1,0 +1,233 @@
+// SPDX-License-Identifier: LGPL-3.0-only
+#include "Backend.h"
+#include "ipc/Json.h"
+#include "xdb/xdb.h"
+#include <atomic>
+#include <filesystem>
+#include <mutex>
+#include <openssl/crypto.h>
+#include <openssl/rand.h>
+#include <thread>
+#ifndef _WIN32
+#include <arpa/inet.h>
+#endif
+namespace {
+thread_local std::string diagnostic;
+struct Worker {
+    xdb::transport::Socket socket;
+    std::jthread thread;
+    std::atomic<bool> done{false};
+};
+} // namespace
+struct xdb_server {
+    xdb::transport::Socket listener;
+    uint16_t port = 0;
+    std::string token, directory;
+    xdb::server::Registry registry;
+    std::atomic<bool> stopping{false};
+    std::jthread accept_thread;
+    // Only accept_thread mutates workers; stop first joins it, then interrupts workers.
+    std::vector<std::unique_ptr<Worker>> workers;
+    void run_client(Worker &worker) noexcept;
+    void accept_loop();
+    ~xdb_server();
+};
+void xdb_server::run_client(Worker &worker) noexcept {
+    using namespace xdb;
+    using Json = nlohmann::json;
+    std::string error;
+    try {
+        worker.socket.set_read_timeout(5000, error);
+        ipc::Message message;
+        if (!ipc::read(worker.socket, message, error) || !message.binary.empty()) {
+            worker.done = true;
+            return;
+        }
+        auto hello = xdb::ipc::parse_json(message.json);
+        auto id = hello.value("id", uint64_t(0));
+        auto params = hello.value("params", Json::object());
+        auto supplied = params.value("token", std::string());
+        if (hello.value("method", std::string()) != "hello" || params.value("protocol", 0) != 1 ||
+            supplied.size() != token.size() ||
+            CRYPTO_memcmp(supplied.data(), token.data(), token.size()) != 0) {
+            ipc::write(worker.socket,
+                       {Json{{"id", id},
+                             {"ok", false},
+                             {"error",
+                              {{"code", "handshake_rejected"},
+                               {"message", "Authentication or protocol version rejected"}}}}
+                            .dump(),
+                        {}},
+                       error);
+            worker.done = true;
+            return;
+        }
+        if (!ipc::write(
+                worker.socket,
+                {Json{{"id", id}, {"ok", true}, {"result", {{"protocol", 1}, {"version", "0.1.0"}}}}.dump(),
+                 {}},
+                error)) {
+            worker.done = true;
+            return;
+        }
+        worker.socket.set_read_timeout(0, error);
+        server::Backend backend(registry, directory);
+        while (!stopping) {
+            if (!ipc::read(worker.socket, message, error))
+                break;
+            Json request = xdb::ipc::parse_json(message.json);
+            if (!request.is_object() || !request.contains("id") || !request["id"].is_number_unsigned() ||
+                !request.contains("method") || !request["method"].is_string() ||
+                !request.value("params", Json::object()).is_object() || !message.binary.empty())
+                break;
+            id = request["id"].get<uint64_t>();
+            std::atomic<bool> disconnected{false};
+            // Detect EOF without consuming protocol bytes. Also cancels in-flight pairing/DDI.
+            std::jthread monitor([&](std::stop_token stop) {
+                while (!stop.stop_requested() && !stopping) {
+                    auto ready = transport::wait_socket(worker.socket.fd(), false, 50);
+                    if (ready < 0) {
+                        disconnected = true;
+                        break;
+                    }
+                    if (ready > 0) {
+                        char c;
+                        auto n = ::recv(worker.socket.fd(), &c, 1, MSG_PEEK);
+                        if (n <= 0) {
+                            disconnected = true;
+                            break;
+                        }
+                        // Requests are sequential. Pending extra bytes must not create a busy loop.
+                        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                    }
+                }
+            });
+            auto cancelled = [&] { return stopping.load() || disconnected.load(); };
+            auto event = [&](const std::string &name, const Json &data) {
+                if (!ipc::write(worker.socket, {Json{{"id", id}, {"event", name}, {"data", data}}.dump(), {}},
+                                error))
+                    disconnected = true;
+            };
+            server::Reply result;
+            try {
+                auto method = request["method"].get<std::string>();
+                if (method == "server.info")
+                    result.result = {
+                        {"protocol", 1}, {"version", "0.1.0"}, {"device_transport", "usb-or-wifi"}};
+                else
+                    result =
+                        backend.handle(method, request.value("params", Json::object()), event, cancelled);
+            } catch (const std::exception &e) {
+                result = server::Reply::failure("invalid_params", e.what());
+            }
+            monitor.request_stop();
+            monitor.join();
+            if (cancelled())
+                break;
+            Json reply = {{"id", id}, {"ok", result.ok}};
+            if (result.ok)
+                reply["result"] = std::move(result.result);
+            else
+                reply["error"] = {{"code", result.code}, {"message", result.error}};
+            if (!ipc::write(worker.socket, {reply.dump(), std::move(result.binary)}, error))
+                break;
+        }
+    } catch (...) { /* A malformed client must not terminate the server. */
+    }
+    worker.socket.interrupt();
+    worker.done = true;
+}
+void xdb_server::accept_loop() {
+    using namespace xdb;
+    while (!stopping) {
+        std::erase_if(workers, [](const auto &worker) { return worker->done.load(); });
+        if (transport::wait_socket(listener.fd(), false, 100) <= 0)
+            continue;
+        transport::Socket socket(::accept(listener.fd(), nullptr, nullptr));
+        if (!socket.valid())
+            continue;
+        if (workers.size() >= 16)
+            continue;
+        auto worker = std::make_unique<Worker>();
+        worker->socket = std::move(socket);
+        auto *raw = worker.get();
+        worker->thread = std::jthread([this, raw] { run_client(*raw); });
+        workers.push_back(std::move(worker));
+    }
+}
+xdb_server::~xdb_server() {
+    stopping = true;
+    if (accept_thread.joinable())
+        accept_thread.join();
+    for (auto &worker : workers)
+        worker->socket.interrupt();
+    for (auto &worker : workers)
+        if (worker->thread.joinable())
+            worker->thread.join();
+}
+extern "C" {
+const char *xdb_server_last_error() { return diagnostic.c_str(); }
+xdb_server *xdb_server_start(uint16_t port, const char *token, const char *directory) {
+    diagnostic.clear();
+    try {
+        if (!directory || !std::filesystem::u8path(directory).is_absolute()) {
+            diagnostic = "Server data directory must be absolute";
+            return nullptr;
+        }
+        auto server = std::make_unique<xdb_server>();
+        server->directory = directory;
+        if (token && *token)
+            server->token = token;
+        else {
+            unsigned char bytes[32];
+            if (RAND_bytes(bytes, sizeof(bytes)) != 1) {
+                diagnostic = "Failed to generate server token";
+                return nullptr;
+            }
+            static constexpr char hex[] = "0123456789abcdef";
+            for (auto byte : bytes) {
+                server->token += hex[byte >> 4];
+                server->token += hex[byte & 15];
+            }
+        }
+        if (server->token.size() < 16 || server->token.size() > 256) {
+            diagnostic = "Server token must contain 16..256 bytes";
+            return nullptr;
+        }
+        if (!xdb::transport::initialize_sockets(diagnostic))
+            return nullptr;
+        server->listener = xdb::transport::Socket(::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP));
+        if (!server->listener.valid()) {
+            diagnostic = xdb::transport::socket_error_message();
+            return nullptr;
+        }
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(port);
+        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        if (::bind(server->listener.fd(), reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) != 0 ||
+            ::listen(server->listener.fd(), 16) != 0) {
+            diagnostic = xdb::transport::socket_error_message();
+            return nullptr;
+        }
+#ifdef _WIN32
+        int size = sizeof(addr);
+#else
+        socklen_t size = sizeof(addr);
+#endif
+        if (getsockname(server->listener.fd(), reinterpret_cast<sockaddr *>(&addr), &size) != 0) {
+            diagnostic = xdb::transport::socket_error_message();
+            return nullptr;
+        }
+        server->port = ntohs(addr.sin_port);
+        server->accept_thread = std::jthread([raw = server.get()] { raw->accept_loop(); });
+        return server.release();
+    } catch (const std::exception &e) {
+        diagnostic = e.what();
+        return nullptr;
+    }
+}
+uint16_t xdb_server_port(const xdb_server *server) { return server ? server->port : 0; }
+const char *xdb_server_token(const xdb_server *server) { return server ? server->token.c_str() : ""; }
+void xdb_server_stop(xdb_server *server) { delete server; }
+}

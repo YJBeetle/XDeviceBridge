@@ -1,0 +1,29 @@
+name: build
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  client:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure client only
+        run: cmake -S . -B build -DXDB_BUILD_SERVER=OFF -DXDB_BUILD_CLI=OFF -DXDB_BUILD_TESTS=OFF
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
+  server:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libssl-dev libcurl4-openssl-dev libavcodec-dev libavutil-dev libswscale-dev libswresample-dev libavformat-dev
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+      - name: Build
+        run: cmake --build build --parallel 4
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
