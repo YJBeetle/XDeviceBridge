@@ -1,5 +1,7 @@
 # Install xdb
 
+English | [简体中文](INSTALL_zh.md)
+
 ## Desktop runtime packages
 
 Download the runtime archive for your operating system and CPU from the

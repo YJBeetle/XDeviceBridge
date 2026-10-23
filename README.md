@@ -1,5 +1,7 @@
 # XDeviceBridge (`xdb`)
 
+English | [简体中文](README_zh.md)
+
 A cross-platform library and command-line bridge for iPhone/iPad device discovery,
 pairing, developer-image preparation, capture and input. No jailbreak, WebDriverAgent
 or on-device automation application is required for the implemented services.
