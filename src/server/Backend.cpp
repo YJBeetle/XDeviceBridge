@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 #include "Backend.h"
+#include "Discovery.h"
 #include "ddi/Download.h"
 #include "hid/Hid.h"
 #include "media/AudioPump.h"
@@ -40,22 +41,6 @@ std::vector<wifi::PairRecord> records(const std::string &dir, const Cancel &canc
     std::vector<std::string> warnings;
     bool stopped = false;
     return remote::detail::load_discovery_records(dir, cancel, warnings, stopped);
-}
-Json discovery_json(const remote::DiscoveryResult &value) {
-    Json devices = Json::array();
-    for (const auto &device : value.devices) {
-        Json candidates = Json::array();
-        for (const auto &c : device.candidates)
-            candidates.push_back(
-                {{"transport", c.transport == remote::DiscoveryTransport::usbmux ? "usb" : "wifi"},
-                 {"address", c.address},
-                 {"port", c.port},
-                 {"interface", c.interface_name},
-                 {"paired", c.pairing == remote::DiscoveryPairing::ready},
-                 {"connection_type", c.connection_type}});
-        devices.push_back({{"udid", device.udid}, {"name", device.name}, {"candidates", candidates}});
-    }
-    return {{"devices", devices}, {"warnings", value.warnings}, {"cancelled", value.cancelled}};
 }
 bool unit(double n) { return std::isfinite(n) && n >= 0 && n <= 1; }
 } // namespace
@@ -183,7 +168,18 @@ Reply Backend::handle(const std::string &method, const Json &p, const Event &eve
         o.include_wifi = mode != "usb";
         auto value = remote::discover_devices(o);
         Reply r;
-        r.result = discovery_json(value);
+        std::set<std::string> connected;
+        std::vector<std::shared_ptr<Session>> sessions;
+        {
+            std::lock_guard lock(registry_.mutex);
+            for (const auto &[key, weak] : registry_.sessions) {
+                if (auto session = std::static_pointer_cast<Session>(weak.lock()))
+                    sessions.push_back(std::move(session));
+            }
+        }
+        for (const auto &session : sessions)
+            connected.insert(session->udid);
+        r.result = discovery_json(value, connected);
         r.result["capabilities"] = {{"video_decode", kHaveDecoder}};
         return r;
     }

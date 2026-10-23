@@ -80,6 +80,18 @@ or `rpc-shell` for a multi-operation session.
 
 ## Geometry and media ownership
 
+`devices` adds per-device `state` (`discovered`, `paired`, `connected`), `pairing`
+(`record_present` or `unknown`) and `connection` (`connected` or `unverified`).
+Connected means an active authenticated server session, not a fresh liveness
+probe or a promise that every device service works. Candidate `pairing` preserves
+the discovery reason (`record_present`, `incomplete_record`, `identifier_hint`,
+`ambiguous`, `invalid_advertisement`, `crypto_error`, `unknown`). The existing
+candidate `paired` boolean still only describes a complete matching local record.
+No active connection or pairing is performed by this listing request.
+
+CLI-only selection allows omitting `-s` for `screenshot` / `ddi prepare`; explicit
+SDK UDIDs and the request formats remain unchanged.
+
 Touch coordinates refer to the device's panel axes, not a rotated/cropped client
 window. BGRA frame dimensions can include codec padding. `display` metadata comes
 from the device display subscription and contains width, height, orientation and

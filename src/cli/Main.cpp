@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <set>
 #include <thread>
 using Json = nlohmann::json;
 namespace {
@@ -56,8 +57,8 @@ void help() {
                  "xdb server [--data-dir DIR] [--port PORT]\n"
                  "xdb devices [-l] [--usb|--wifi] [--timeout MS]\n"
                  "xdb [-s UDID] pair [--wifi|--usb] [--timeout MS]\n"
-                 "xdb -s UDID ddi prepare [--wifi [ADDRESS]] [--cache-dir DIR] [--replace]\n"
-                 "xdb -s UDID screenshot FILE [--wifi [ADDRESS]]\n"
+                 "xdb [-s UDID] ddi prepare [--wifi [ADDRESS]] [--cache-dir DIR] [--replace]\n"
+                 "xdb [-s UDID] screenshot FILE [--wifi [ADDRESS]]\n"
                  "xdb pairing import FILE\n"
                  "xdb rpc METHOD [JSON_PARAMS] [--output FILE]\n"
                  "xdb rpc-shell\n"
@@ -65,6 +66,9 @@ void help() {
                  "Server listens on loopback only. Default port: 17423. --port 0 selects a free port.\n"
                  "Desktop clients automatically start a background server when needed.\n"
                  "Use server to run in the foreground for diagnostics.\n"
+                 "A sole discovered device is selected when -s is omitted.\n"
+                 "devices: connected = active session, paired = local record, discovered = no verified record.\n"
+                 "Pairing records do not prove device connectivity; use -l for candidate details.\n"
                  "rpc-shell is a JSON debugging console, not an iOS command shell.\n";
 }
 } // namespace
@@ -76,7 +80,7 @@ int main(int argc, char **argv) {
         }
         uint16_t port = *env("XDB_PORT") ? uint16_t(number(env("XDB_PORT"), 1, 65535)) : 17423;
         std::string dir, output, serial, wifi_address, cache;
-        bool wifi = false, usb = false, replace = false, json_output = false;
+        bool wifi = false, usb = false, replace = false, json_output = false, long_output = false;
         int timeout = -1;
         std::vector<std::string> args;
         for (int i = 1; i < argc; ++i) {
@@ -99,6 +103,7 @@ int main(int argc, char **argv) {
             else if (a == "--json")
                 json_output = true;
             else if (a == "-l") {
+                long_output = true;
             } else if (a == "--port" || a == "--data-dir" || a == "--output" || a == "-s" ||
                        a == "--serial" || a == "--timeout" || a == "--cache-dir") {
                 if (++i == argc)
@@ -199,12 +204,27 @@ int main(int argc, char **argv) {
                 else if (method == "devices") {
                     std::cout << "List of iOS devices attached\n";
                     for (const auto &device : value["result"]["devices"]) {
-                        std::cout << device.value("udid", std::string("(unpaired)")) << "\t"
-                                  << device.value("name", std::string()) << '\n';
-                        for (const auto &candidate : device["candidates"])
-                            std::cout << "  " << candidate["transport"].get<std::string>() << " "
-                                      << candidate["address"].get<std::string>() << ":" << candidate["port"]
-                                      << (candidate["paired"].get<bool>() ? " paired" : "") << '\n';
+                        auto udid = device.value("udid", std::string());
+                        std::cout << (udid.empty() ? "(unidentified)" : udid) << "\t"
+                                  << device.value("state", std::string("discovered"));
+                        if (long_output) {
+                            std::cout << " name:" << device.value("name", std::string())
+                                      << " pairing:" << device.value("pairing", std::string("unknown"))
+                                      << " connection:" << device.value("connection", std::string("unverified"));
+                        }
+                        std::cout << '\n';
+                        if (long_output)
+                            for (const auto &candidate : device["candidates"]) {
+                                auto address = candidate["address"].get<std::string>();
+                                if (address.find(':') != std::string::npos)
+                                    address = "[" + address + "]";
+                                std::cout << "  " << candidate["transport"].get<std::string>();
+                                if (!address.empty())
+                                    std::cout << " " << address << ":" << candidate["port"];
+                                std::cout << " interface:" << candidate.value("interface", std::string())
+                                          << " type:" << candidate.value("connection_type", std::string())
+                                          << " pairing:" << candidate.value("pairing", std::string("unknown")) << '\n';
+                            }
                     }
                     for (const auto &warning : value["result"]["warnings"])
                         std::cerr << "warning: " << warning.get<std::string>() << '\n';
@@ -256,8 +276,51 @@ int main(int argc, char **argv) {
                 throw std::invalid_argument("Pairing file is unreadable or exceeds 16 KiB");
             return request("pairing.import", {{"record", record}}).value("ok", false) ? 0 : 1;
         }
-        if (serial.empty())
-            throw std::invalid_argument("Select a device with -s UDID");
+        if (args[0] != "screenshot" && args[0] != "ddi")
+            throw std::invalid_argument("Unknown command; run xdb --help");
+        if ((args[0] == "screenshot" && args.size() != 2) ||
+            (args[0] == "ddi" && (args.size() != 2 || args[1] != "prepare")))
+            throw std::invalid_argument("Expected screenshot FILE or ddi prepare");
+        if (serial.empty()) {
+            Json options = {{"transport", usb ? "usb" : wifi ? "wifi" : "auto"}};
+            if (timeout >= 0)
+                options["timeout_ms"] = timeout;
+            auto found = request("devices", options, false);
+            if (!found.value("ok", false))
+                return 1;
+            if (found["result"].value("cancelled", false))
+                throw std::runtime_error("Device discovery was cancelled");
+            std::set<std::string> identifiers;
+            bool unidentified = false;
+            for (const auto &device : found["result"]["devices"]) {
+                if (wifi && wifi_address != "auto") {
+                    bool matches = false;
+                    for (const auto &candidate : device["candidates"])
+                        matches |= candidate.value("transport", std::string()) == "wifi" &&
+                                   candidate.value("address", std::string()) == wifi_address;
+                    if (!matches)
+                        continue;
+                }
+                auto id = device.value("udid", std::string());
+                if (id.empty())
+                    unidentified = true;
+                else
+                    identifiers.insert(id);
+            }
+            if (identifiers.empty())
+                throw std::invalid_argument(unidentified ? "Discovered device has no known UDID; pair it first"
+                                                         : "No device found");
+            if (identifiers.size() > 1 || unidentified) {
+                std::string message = "Multiple devices; select one with -s UDID:";
+                for (const auto &id : identifiers)
+                    message += " " + id;
+                if (unidentified)
+                    message += " (also unidentified devices)";
+                throw std::invalid_argument(message);
+            }
+            serial = *identifiers.begin();
+            params["udid"] = serial;
+        }
         if (wifi)
             params["wifi"] = wifi_address;
         if (args[0] == "ddi" && args.size() == 2 && args[1] == "prepare") {
@@ -268,6 +331,7 @@ int main(int argc, char **argv) {
         }
         if (args[0] == "screenshot" && args.size() == 2) {
             output = args[1];
+            params["transport"] = usb ? "usb" : wifi ? "wifi" : "auto";
             if (!request("connection.open", params, false).value("ok", false))
                 return 1;
             return request("screenshot", Json::object()).value("ok", false) ? 0 : 1;

@@ -79,6 +79,26 @@ xdb -s '<UDID>' ddi prepare --wifi
 xdb -s '<UDID>' screenshot screen.png --wifi
 ```
 
+`devices` prints one line per discovered device; `devices -l` includes its name,
+addresses, network interfaces and pairing/connection details. `--json` retains the
+complete structured response. States have distinct meanings:
+
+| State | Meaning |
+| --- | --- |
+| `discovered` | Found through USB/mDNS; no verified local Wi-Fi pairing record was matched |
+| `paired` | A complete local record matched the Wi-Fi advertisement; connection remains unverified |
+| `connected` | The server currently holds an authenticated device session; individual services may still fail |
+
+Listing does not actively connect to devices. `pairing:record_present` never
+means the phone has accepted a new connection. USB trust is not inferred from
+USB enumeration. Unknown device identities appear as `(unidentified)`.
+
+For `screenshot` and `ddi prepare`, omit `-s` when discovery finds exactly one
+identified device. `--usb` / `--wifi` constrain that discovery, and an explicit
+Wi-Fi address further selects its matching candidate. Several addresses for the
+same UDID count as one device. Multiple devices, including unidentified ones,
+require explicit selection; an unidentified device must be paired first.
+
 Use `xdb start-server` to start or reuse the background server explicitly and
 `xdb kill-server` to stop it, cancelling its sessions. Killing an absent server
 succeeds without starting one. `xdb server` remains available for foreground
@@ -94,7 +114,8 @@ is loaded into the client process. Android Apps continue to start an embedded
 server themselves.
 
 `--wifi` without an address discovers paired devices; `--wifi ADDRESS` selects a
-RemotePairing address explicitly. Without `--wifi`, device operations use USB.
+RemotePairing address explicitly. Device sessions prefer USB and fall back to
+paired Wi-Fi unless a transport is explicitly selected.
 USB requires a working system usbmux/Apple device service and device trust.
 Android initially supports Wi-Fi; Android USB Host integration is not implemented.
 
