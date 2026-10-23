@@ -37,6 +37,11 @@ The server owns device pairing records. Its API returns a UDID, never the privat
 pairing material. Each Android application supplies its own private data directory;
 there is no shared system daemon or cross-application credential store.
 
+## Install
+
+See [installation and desktop packages](docs/INSTALL.md) for user-local installation,
+PATH setup, runtime/source archives and downstream SDK lookup.
+
 ## Build
 
 C++20 (including `std::jthread`/`std::stop_token`), CMake >= 3.20, OpenSSL and curl
@@ -144,8 +149,7 @@ raw requests. `rpc-shell` maintains a client session; it is not an iOS command s
 - Cancellation uses client disconnection or server shutdown. Existing device service calls
   may finish at their own deadlines; immediate cancellation of every service is not promised.
 - Audio and recording core code are retained from the source project, but are not exposed
-  in the initial public protocol. Encoded video, automatic server startup and consumer
-  migrations remain follow-up work.
+  in the initial public protocol. Encoded video remains follow-up work.
 - Cross-build success does not prove Android application packaging, lifecycle, permission
   handling or physical-device behavior. See [validation](docs/VALIDATION.md).
 

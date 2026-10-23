@@ -1,0 +1,205 @@
+#!/usr/bin/env python3
+"""Stage a desktop runtime and a separate matching source archive."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import platform
+import re
+import shutil
+import subprocess
+import tarfile
+import tempfile
+import zipfile
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def run(*args, **kwargs):
+    return subprocess.check_output([str(a) for a in args], text=True, **kwargs).strip()
+
+
+def digest(path):
+    h = hashlib.sha256()
+    with path.open('rb') as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b''):
+            h.update(block)
+    return h.hexdigest()
+
+
+def mingw_prefix():
+    return Path(run('cygpath', '-m', os.environ['MINGW_PREFIX']))
+
+
+def dependencies(stage, build, prefix):
+    windows = platform.system() == 'Windows'
+    executable = stage / 'bin' / ('xdb.exe' if windows else 'xdb')
+    destination = stage / ('bin' if windows else 'lib')
+    listing = build / 'runtime-dependencies.txt'
+    search = [stage / 'lib', stage / 'bin', prefix / 'lib', prefix / 'bin']
+    if windows:
+        search.append(mingw_prefix() / 'bin')
+    run('cmake', f'-Dexecutable={executable}', f'-Doutput={listing}',
+        '-Dsearch_directories=' + ';'.join(map(str, search)), '-P', ROOT / 'tools/packaging/runtime.cmake')
+    origins = {}
+    for line in listing.read_text().splitlines():
+        if not line:
+            continue
+        source = Path(line)
+        real = source.resolve()
+        if real.is_relative_to(stage):
+            continue
+        if not real.is_relative_to(prefix):
+            # Only the MinGW language runtime and zlib may come from the compiler installation.
+            if not (windows and re.fullmatch(r'(libgcc_s_.*|libstdc\+\+-6|libwinpthread-1|zlib1)\.dll', source.name, re.I)):
+                raise RuntimeError(f'Dependency escaped the release prefix: {source}')
+        target = destination / source.name
+        if target.exists() and digest(target) != digest(real):
+            raise RuntimeError(f'Conflicting runtime library: {source.name}')
+        shutil.copy2(real, target)
+        origins[target.name] = str(real)
+    binaries = [executable] + [p for p in destination.iterdir() if p.is_file() and (p.suffix == '.dylib' or '.so' in p.name)]
+    if platform.system() == 'Darwin':
+        for binary in binaries:
+            for line in run('otool', '-L', binary).splitlines()[1:]:
+                old = line.strip().split(' (', 1)[0]
+                if old.startswith(('/usr/lib/', '/System/Library/')):
+                    continue
+                name = Path(old).name
+                if not (destination / name).exists():
+                    raise RuntimeError(f'Unbundled dependency {old} in {binary}')
+                relative = '@loader_path/../lib/' if binary == executable else '@loader_path/'
+                run('install_name_tool', '-change', old, relative + name, binary)
+            if binary != executable:
+                run('install_name_tool', '-id', '@rpath/' + binary.name, binary)
+            # Remove build-machine search paths, retaining only loader-relative paths.
+            load_commands = run('otool', '-l', binary)
+            for rpath in re.findall(r'cmd LC_RPATH\n.*?\n\s*path (.*?) \(offset', load_commands):
+                if rpath.startswith('/'):
+                    run('install_name_tool', '-delete_rpath', rpath, binary)
+            run('codesign', '--force', '--sign', '-', binary)
+            run('codesign', '--verify', '--strict', binary)
+    elif not windows:
+        for binary in binaries:
+            run('patchelf', '--set-rpath', '$ORIGIN/../lib' if binary == executable else '$ORIGIN', binary)
+    return origins
+
+
+def materials(stage, sources, build, prefix, origins):
+    licenses = stage / 'share/licenses/XDeviceBridge'
+    licenses.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(ROOT / 'THIRD_PARTY_NOTICES.md', licenses)
+    # Preserve exact fetched sources separately; never copy build caches into the runtime.
+    external = sources / 'dependencies'
+    external.mkdir(parents=True)
+    for archive in sorted((prefix / 'sources').glob('*.tar.*')):
+        shutil.copy2(archive, external)
+    cache = (build / 'CMakeCache.txt').read_text()
+    for name in ('nlohmann_json', 'pugixml', 'mdns', 'lwip'):
+        match = re.search(rf'^{name}_SOURCE_DIR:[^=]+=(.+)$', cache, re.M)
+        path = Path(match.group(1)) if match else build / '_deps' / (name + '-src')
+        if not path.is_dir():
+            raise RuntimeError(f'Missing bundled dependency sources: {name}')
+        with tarfile.open(external / (name + '.tar.gz'), 'w:gz') as archive:
+            archive.add(path, arcname=name)
+        target = licenses / name
+        target.mkdir()
+        found = False
+        for filename in ('LICENSE', 'LICENSE.txt', 'LICENSE.md', 'LICENSE.MIT', 'COPYING', 'COPYING.txt'):
+            if (path / filename).is_file():
+                shutil.copy2(path / filename, target)
+                found = True
+        if name == 'mdns' and not found:
+            # Upstream keeps its Unlicense in the single header.
+            shutil.copy2(path / 'mdns.h', target)
+            found = True
+        if not found:
+            raise RuntimeError(f'Missing license text: {name}')
+    for name, pattern, texts in (
+        ('OpenSSL', 'openssl-*', ('LICENSE.txt',)),
+        ('curl', 'curl-*', ('COPYING',)),
+        ('FFmpeg', 'ffmpeg-*', ('COPYING.LGPLv2.1', 'COPYING.LGPLv3', 'LICENSE.md')),
+    ):
+        candidates = [p for p in (prefix / 'sources').glob(pattern) if p.is_dir() and (p / texts[0]).is_file()]
+        if not candidates:
+            if name == 'curl' and platform.system() == 'Darwin':
+                continue  # macOS system library
+            raise RuntimeError(f'Missing license sources: {name}')
+        target = licenses / name
+        target.mkdir()
+        for filename in texts:
+            if (candidates[0] / filename).is_file():
+                shutil.copy2(candidates[0] / filename, target)
+    if platform.system() == 'Windows':
+        # Compiler DLLs use GCC's runtime exception; preserve MSYS2 package notices.
+        for name in ('gcc-libs', 'zlib', 'winpthreads'):
+            path = mingw_prefix() / 'share/licenses' / name
+            if path.is_dir():
+                shutil.copytree(path, licenses / name)
+        if not (licenses / 'gcc-libs').exists():
+            raise RuntimeError('Missing MinGW GCC runtime license texts')
+    logs = sources / 'build-information'
+    logs.mkdir()
+    for relative in ('recipe.txt', 'sources/ffmpeg-build/config.h', 'sources/ffmpeg-build/ffbuild/config.mak',
+                     'sources/ffmpeg-build/ffbuild/config.log', 'sources/curl-build/CMakeCache.txt'):
+        path = prefix / relative
+        if path.is_file():
+            shutil.copy2(path, logs / path.name)
+    shutil.copy2(build / 'CMakeCache.txt', logs / 'xdb-CMakeCache.txt')
+    openssl = next(p for p in (prefix / 'sources').glob('openssl-*') if p.is_dir() and (p / 'configdata.pm').is_file())
+    (logs / 'openssl-configuration.txt').write_text(run('perl', 'configdata.pm', '--dump', cwd=openssl) + '\n')
+    # Only committed repository contents are release sources. Dirty packaging is refused below.
+    with (sources / 'XDeviceBridge.tar').open('wb') as stream:
+        subprocess.run(['git', '-C', str(ROOT), 'archive', 'HEAD'], stdout=stream, check=True)
+    manifest = {'commit': run('git', '-C', ROOT, 'rev-parse', 'HEAD'),
+                'platform': platform.platform(), 'runtime_origins': origins,
+                'runtime_sha256': {str(p.relative_to(stage)): digest(p) for p in stage.rglob('*') if p.is_file()},
+                'sources_sha256': {str(p.relative_to(sources)): digest(p) for p in sources.rglob('*') if p.is_file()}}
+    (sources / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--build', type=Path, required=True)
+    parser.add_argument('--dependencies', type=Path, required=True)
+    parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--config', default='Release')
+    args = parser.parse_args()
+    if run('git', '-C', ROOT, 'status', '--porcelain', '--untracked-files=normal'):
+        raise RuntimeError('Commit source changes before producing matching runtime/source archives')
+    build, prefix, output = args.build.resolve(), args.dependencies.resolve(), args.output.resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    label = 'xdb-' + platform.system().lower() + '-' + platform.machine().lower()
+    with tempfile.TemporaryDirectory(prefix='xdb-package-') as temporary:
+        work = Path(temporary)
+        stage, sources = work / label, work / (label + '-sources')
+        sources.mkdir()
+        run('cmake', '--install', build, '--prefix', stage, '--config', args.config, '--component', 'Runtime')
+        # CMake also installs the SDK. Runtime bundles carry no headers/import/static libraries.
+        shutil.rmtree(stage / 'include', ignore_errors=True)
+        for path in (stage / 'lib').glob('*.a'):
+            path.unlink()
+        for path in (stage / 'lib').glob('*.lib'):
+            path.unlink()
+        shutil.copy2(ROOT / 'docs/INSTALL.md', stage / 'INSTALL.md')
+        if platform.system() != 'Windows':
+            shutil.copy2(ROOT / 'tools/packaging/install.sh', stage / 'install.sh')
+        origins = dependencies(stage, build, prefix)
+        materials(stage, sources, build, prefix, origins)
+        for directory in (stage, sources):
+            if platform.system() == 'Windows':
+                with zipfile.ZipFile(output / (directory.name + '.zip'), 'w', zipfile.ZIP_DEFLATED) as archive:
+                    for path in directory.rglob('*'):
+                        if path.is_file():
+                            archive.write(path, path.relative_to(work))
+            else:
+                with tarfile.open(output / (directory.name + '.tar.gz'), 'w:gz') as archive:
+                    archive.add(directory, arcname=directory.name)
+        packages = sorted(output.glob(label + '*'))
+        (output / (label + '-SHA256SUMS.txt')).write_text(''.join(f'{digest(p)}  {p.name}\n' for p in packages if p.is_file()))
+        print('\n'.join(map(str, packages)))
+
+
+if __name__ == '__main__':
+    main()

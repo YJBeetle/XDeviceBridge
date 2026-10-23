@@ -1,0 +1,102 @@
+name: packages
+on:
+  push:
+    tags: ['v*']
+    paths:
+      - 'tools/packaging/**'
+      - '.github/workflows/packages.yml'
+      - 'CMakeLists.txt'
+      - 'cmake/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Linux tools
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build nasm patchelf zlib1g-dev
+      - name: macOS tools
+        if: runner.os == 'macOS'
+        run: brew install ninja pkg-config
+      - uses: msys2/setup-msys2@v2
+        if: runner.os == 'Windows'
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            make perl diffutils tar xz curl
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-nasm
+            mingw-w64-ucrt-x86_64-zlib
+      - name: Build and package (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          tools/packaging/dependencies.sh "$PWD/build-release-deps"
+          export PKG_CONFIG_PATH="$PWD/build-release-deps/lib/pkgconfig"
+          if [ "$RUNNER_OS" = macOS ]; then export MACOSX_DEPLOYMENT_TARGET=13.3; fi
+          cmake -C build-release-deps/xdb.cmake -S . -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DXDB_BUILD_TESTS=OFF
+          cmake --build build-release --parallel 4
+          python3 tools/packaging/package.py --build build-release --dependencies build-release-deps --output build-packages
+          mkdir build-package-smoke
+          tar -xf "$(find build-packages -name '*.tar.gz' ! -name '*-sources*' -print -quit)" -C build-package-smoke
+          python3 tools/packaging/smoke.py build-package-smoke/xdb-*
+      - name: Build and package (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          tools/packaging/dependencies.sh "$PWD/build-release-deps"
+          export PKG_CONFIG_PATH="$PWD/build-release-deps/lib/pkgconfig"
+          cmake -C build-release-deps/xdb.cmake -S . -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DXDB_BUILD_TESTS=OFF
+          cmake --build build-release --parallel 4
+          python tools/packaging/package.py --build build-release --dependencies build-release-deps --output build-packages
+          python -c "import pathlib,zipfile; p=next(p for p in pathlib.Path('build-packages').glob('*.zip') if '-sources' not in p.name); zipfile.ZipFile(p).extractall('build-package-smoke')"
+          python tools/packaging/smoke.py build-package-smoke/xdb-*
+      - uses: actions/upload-artifact@v7
+        with:
+          name: xdb-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            build-packages/*
+            !build-packages/*-sources.*
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: xdb-sources-${{ runner.os }}-${{ runner.arch }}
+          path: build-packages/*-sources.*
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: desktop
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: xdb-*
+          merge-multiple: true
+          path: packages
+      - name: Publish runtime and source archives together
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --verify-tag --title "$TAG" --generate-notes
+          fi
+          gh release upload "$TAG" packages/* --clobber

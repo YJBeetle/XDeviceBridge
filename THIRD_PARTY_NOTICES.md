@@ -18,7 +18,9 @@ packages; it does not relicense those packages.
 Preserve each exact dependency's license texts and source/provenance material when
 redistributing binaries. A local Homebrew/MSYS2 FFmpeg package can enable GPL
 components; the project's LGPL label does not make such a combined binary LGPL-only.
-No prebuilt release bundle is produced by this initial import.
+Desktop release bundles use a pinned minimal FFmpeg build without GPL/nonfree
+options. License texts accompany the runtime; exact sources, build recipes and
+metadata are distributed in a separate matching source archive.
 
 The initial implementation was derived from the copyright owner's scrctl source;
 its owned code was relicensed with authorization. Third-party notices already
