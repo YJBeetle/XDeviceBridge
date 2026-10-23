@@ -15,9 +15,9 @@ Android arm64 client/server builds are cross-compilation checks, not application
 or physical-device acceptance. They use Android API 24 and target-built dependencies.
 No new successful physical-device behavior is implied by the scrctl source origin.
 
-Before a stable release: complete physical-device acceptance for pairing, DDI
-preparation, input, audio and recording through the new protocol, and validate
-Android application packaging and lifecycle. Desktop distribution checks and
+Before a stable release: complete physical-device acceptance for fresh pairing,
+DDI installation, audio listening and Android application packaging/lifecycle.
+Existing-DDI reuse, USB input, video-only recording, desktop distribution and
 consumer capture evidence are recorded below.
 
 ## Consumer migration checks
@@ -73,6 +73,29 @@ Windows 2025 x86-64. Each native job:
   contains no static archives or CMake build cache.
 
 Local macOS checks also covered user-directory installation, command lookup and
-runtime archive SHA256 verification. macOS signatures are ad hoc; Apple notarization
-and execution on the minimum deployment OS were not tested. These packaging checks
-use isolated data directories and do not exercise physical-device services.
+runtime archive SHA256 verification. The separate
+[Developer ID workflow](https://github.com/YJBeetle/XDeviceBridge/actions/runs/40001700376)
+passed signing and Apple notarization at commit `5c77f69` (Accepted). This does not
+verify execution on the minimum deployment OS. These packaging checks use isolated
+data directories and do not exercise physical-device services.
+
+## USB device acceptance (2026-10-24)
+
+A disposable local server used the existing USB trust for iPhone14,4 / iOS 27.0.1:
+
+- Screenshot and HEVC frame decoding succeeded (native panel 1125×2436;
+  decoded frame 1136×2464).
+- Home Screen Search displayed `qabc123` after ASCII input and `qabc12` after a
+  HID backspace. The remaining query was cleared without submitting it.
+- A 3.15-second video-only MP4 finalized successfully; an independent FFprobe
+  counted 176 HEVC frames and FFmpeg decoded the entire file without errors.
+- DDI preparation emitted `DDI already mounted: Personalized (no new installation)`
+  and returned success. No pairing record or mounted image was replaced.
+
+This exposed a missing `hevc_metadata` bitstream filter in the minimal desktop
+FFmpeg recipe. The recipe now enables it and relocated-package smoke checks require
+it. The existing recording-parameter fixture passes against these dependencies.
+The recorder fixture's readback checks require demuxers omitted from the minimal
+runtime, so they are not counted as passing release-dependency tests; the independent
+file decoding above verifies the actual device recording instead. Audio listening,
+fresh pairing and DDI removal/reinstallation were not exercised by this check.
