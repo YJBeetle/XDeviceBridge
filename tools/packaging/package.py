@@ -185,6 +185,12 @@ def materials(stage, sources, build, prefix, origins):
     (sources / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
 
 
+def verify_clean():
+    status = run('git', '-C', ROOT, 'status', '--porcelain', '--untracked-files=normal')
+    if status:
+        raise RuntimeError('Commit source changes before producing matching runtime/source archives:\n' + status)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--build', type=Path, required=True)
@@ -192,8 +198,7 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--config', default='Release')
     args = parser.parse_args()
-    if run('git', '-C', ROOT, 'status', '--porcelain', '--untracked-files=normal'):
-        raise RuntimeError('Commit source changes before producing matching runtime/source archives')
+    verify_clean()
     build, prefix, output = args.build.resolve(), args.dependencies.resolve(), args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     label = 'xdb-' + platform.system().lower() + '-' + platform.machine().lower()

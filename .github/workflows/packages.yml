@@ -41,11 +41,30 @@ jobs:
             mingw-w64-ucrt-x86_64-python
             mingw-w64-ucrt-x86_64-nasm
             mingw-w64-ucrt-x86_64-zlib
+      - uses: actions/cache/restore@v6
+        id: deps-cache
+        with:
+          path: build-release-deps
+          key: xdb-release-deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tools/packaging/dependencies.sh', 'tools/android-deps.sh') }}
+      - name: Build dependencies (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: tools/packaging/dependencies.sh "$PWD/build-release-deps"
+      - name: Check checkout and build dependencies (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          python -c "from tools.packaging.package import verify_clean; verify_clean()"
+          tools/packaging/dependencies.sh "$PWD/build-release-deps"
+      - uses: actions/cache/save@v6
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        with:
+          path: build-release-deps
+          key: ${{ steps.deps-cache.outputs.cache-primary-key }}
       - name: Build and package (Unix)
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          tools/packaging/dependencies.sh "$PWD/build-release-deps"
           export PKG_CONFIG_PATH="$PWD/build-release-deps/lib/pkgconfig"
           if [ "$RUNNER_OS" = macOS ]; then export MACOSX_DEPLOYMENT_TARGET=13.3; fi
           cmake -C build-release-deps/xdb.cmake -S . -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DXDB_BUILD_TESTS=OFF
@@ -58,7 +77,6 @@ jobs:
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
-          tools/packaging/dependencies.sh "$PWD/build-release-deps"
           export PKG_CONFIG_PATH="$PWD/build-release-deps/lib/pkgconfig"
           cmake -C build-release-deps/xdb.cmake -S . -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DXDB_BUILD_TESTS=OFF
           cmake --build build-release --parallel 4
