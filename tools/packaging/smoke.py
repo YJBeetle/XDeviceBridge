@@ -11,17 +11,19 @@ import subprocess
 import sys
 import tempfile
 
-package = Path(sys.argv[1]).resolve()
-windows = platform.system() == 'Windows'
-with tempfile.TemporaryDirectory(prefix='xdb installed ') as temporary:
-    temporary = Path(temporary)
-    relocated = temporary / 'relocated package'
-    shutil.copytree(package, relocated)
+def probe(relocated, temporary):
+    windows = platform.system() == 'Windows'
     executable = relocated / 'bin' / ('xdb.exe' if windows else 'xdb')
     library = relocated / ('bin/libxdb_client.dll' if windows else 'lib/libxdb_client.dylib' if platform.system() == 'Darwin' else 'lib/libxdb_client.so')
     os.environ.pop('XDB_EXECUTABLE', None)
     os.environ.update(HOME=str(temporary), XDG_DATA_HOME=str(temporary), LOCALAPPDATA=str(temporary))
     if windows:
+        kernel = C.WinDLL('kernel32', use_last_error=True)
+        kernel.OpenProcess.argtypes = [C.c_uint32, C.c_int, C.c_uint32]
+        kernel.OpenProcess.restype = C.c_void_p
+        kernel.WaitForSingleObject.argtypes = [C.c_void_p, C.c_uint32]
+        kernel.WaitForSingleObject.restype = C.c_uint32
+        kernel.CloseHandle.argtypes = [C.c_void_p]
         dll_directory = os.add_dll_directory(str(relocated / 'bin'))
     # Test both SDK sibling-bin lookup and a consumer shipping its own client on PATH.
     for from_path in (False, True):
@@ -46,19 +48,47 @@ with tempfile.TemporaryDirectory(prefix='xdb installed ') as temporary:
             port = sock.getsockname()[1]
         handle = client.xdb_client_connect(port, None, None)
         assert handle, client.xdb_last_error()
+        server_process = None
         try:
             response = C.c_void_p()
             assert client.xdb_client_request(handle, b'server.info', b'{}', C.byref(response)), client.xdb_last_error()
             try:
                 result = json.loads(client.xdb_response_json(response))
                 assert result['ok'] and result['result']['protocol'] == 1, result
+                if windows:
+                    server_process = kernel.OpenProcess(0x00100000, False, result['result']['pid'])
+                    assert server_process, C.get_last_error()
             finally:
                 client.xdb_response_destroy(response)
         finally:
             client.xdb_client_destroy(handle)
-            subprocess.run([str(executable), '--port', str(port), 'kill-server'], check=True, timeout=15)
-    for document in ('INSTALL.md', 'INSTALL_zh.md', 'ANDROID.md'):
-        assert (relocated / document).is_file(), document
-    assert not list(relocated.rglob('CMakeCache.txt'))
-    assert not list(relocated.rglob('*.a'))
-print('Relocated CLI, SDK sibling-bin lookup and consumer PATH lookup passed')
+            try:
+                subprocess.run([str(executable), '--port', str(port), 'kill-server'], check=True, timeout=15)
+                if server_process:
+                    assert kernel.WaitForSingleObject(server_process, 5000) == 0, 'Server did not exit'
+            finally:
+                if server_process:
+                    kernel.CloseHandle(server_process)
+
+
+def main():
+    if sys.argv[1] == '--probe':
+        probe(Path(sys.argv[2]), Path(sys.argv[3]))
+        return
+    package = Path(sys.argv[1]).resolve()
+    with tempfile.TemporaryDirectory(prefix='xdb installed ') as temporary:
+        temporary = Path(temporary)
+        relocated = temporary / 'relocated package'
+        shutil.copytree(package, relocated)
+        # A separate process releases all ctypes DLL handles before Windows cleanup.
+        subprocess.run([sys.executable, str(Path(__file__).resolve()), '--probe',
+                        str(relocated), str(temporary)], check=True, timeout=60)
+        for document in ('INSTALL.md', 'INSTALL_zh.md', 'ANDROID.md'):
+            assert (relocated / document).is_file(), document
+        assert not list(relocated.rglob('CMakeCache.txt'))
+        assert not list(relocated.rglob('*.a'))
+    print('Relocated CLI, SDK sibling-bin lookup and consumer PATH lookup passed')
+
+
+if __name__ == '__main__':
+    main()
