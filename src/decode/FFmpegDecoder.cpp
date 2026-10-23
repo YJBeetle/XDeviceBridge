@@ -1,3 +1,4 @@
+#include "decode/Swscale.h"
 #include "i18n/Translation.h"
 #include "decode/Decoder.h"
 
@@ -167,9 +168,7 @@ private:
 
         uint8_t *dst_data[4] = {out.pixels.data(), nullptr, nullptr, nullptr};
         const int dst_linesize[4] = {static_cast<int>(row_bytes), 0, 0, 0};
-        sws_ = sws_getCachedContext(sws_, w, h, src, w, h, AV_PIX_FMT_BGRA, SWS_POINT,
-                                    nullptr, nullptr, nullptr);
-        if (sws_ == nullptr ||
+        if (!detail::prepare_bgra_scaler(sws_, *f) ||
             sws_scale(sws_, f->data, f->linesize, 0, h, dst_data, dst_linesize) <= 0) {
             out = Frame {};
             return false;

@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #ifdef XDB_HAVE_LIBAV
+#include "decode/Swscale.h"
 extern "C" {
 #include <libavutil/log.h>
 }
@@ -709,6 +710,39 @@ int main() {
     }
 
 #ifdef XDB_HAVE_LIBAV
+    {
+        AVFrame *input = av_frame_alloc(), *output = av_frame_alloc();
+        SwsContext *scaler = nullptr;
+        bool good = input && output;
+        if (good) {
+            input->format = AV_PIX_FMT_YUV420P; input->width = input->height = 16;
+            output->format = AV_PIX_FMT_BGRA; output->width = output->height = 16;
+            good = av_frame_get_buffer(input, 32) == 0 && av_frame_get_buffer(output, 32) == 0;
+        }
+        for (int scenario = 0; good && scenario < 3; ++scenario) {
+            const bool limited = scenario == 2;
+            input->format = scenario == 0 ? AV_PIX_FMT_YUVJ420P : AV_PIX_FMT_YUV420P;
+            input->color_range = scenario == 0 ? AVCOL_RANGE_UNSPECIFIED :
+                limited ? AVCOL_RANGE_MPEG : AVCOL_RANGE_JPEG;
+            input->colorspace = AVCOL_SPC_BT709;
+            for (int y = 0; y < 16; ++y)
+                for (int x = 0; x < 16; ++x)
+                    input->data[0][y * input->linesize[0] + x] = x < 8 ? (limited ? 16 : 0) : (limited ? 235 : 255);
+            for (int plane = 1; plane < 3; ++plane)
+                for (int y = 0; y < 8; ++y)
+                    for (int x = 0; x < 8; ++x) input->data[plane][y * input->linesize[plane] + x] = 128;
+            good = xdb::detail::prepare_bgra_scaler(scaler, *input) &&
+                sws_scale(scaler, input->data, input->linesize, 0, 16, output->data, output->linesize) == 16;
+            int *source_coeff = nullptr, *dest_coeff = nullptr, source_range, dest_range, brightness, contrast, saturation;
+            good = good && sws_getColorspaceDetails(scaler, &source_coeff, &source_range,
+                &dest_coeff, &dest_range, &brightness, &contrast, &saturation) == 0 &&
+                source_range == !limited && source_coeff[0] == sws_getCoefficients(SWS_CS_ITU709)[0];
+            for (int component = 0; good && component < 3; ++component)
+                good = output->data[0][component] <= 1 && output->data[0][15 * 4 + component] >= 254;
+        }
+        check(good, "旧 YUVJ、显式全范围和有限范围正确保留黑白端点及 BT.709 矩阵");
+        sws_freeContext(scaler); av_frame_free(&input); av_frame_free(&output);
+    }
     {
         const int previous = av_log_get_level();
         av_log_set_level(AV_LOG_DEBUG);
