@@ -15,9 +15,10 @@ Android arm64 client/server builds are cross-compilation checks, not application
 or physical-device acceptance. They use Android API 24 and target-built dependencies.
 No new successful physical-device behavior is implied by the scrctl source origin.
 
-Before a stable release: validate actual iPhone pairing, DDI preparation, PNG/video
-geometry and input through the new protocol; test desktop/Android packaging and
-lifetimes; add CI for supported targets; migrate consumers after protocol review.
+Before a stable release: complete physical-device acceptance for pairing, DDI
+preparation, input, audio and recording through the new protocol, and validate
+Android application packaging and lifecycle. Desktop distribution checks and
+consumer capture evidence are recorded below.
 
 ## Consumer migration checks
 
@@ -49,6 +50,29 @@ that an already paired iPhone updates its cached display labels.
 
 Desktop lifecycle tests exercise real background processes on macOS: CLI and SDK
 automatic startup, persistence after client exit, idempotent start/kill, concurrent
-first starts, immediate restart, and refusal to replace a non-xdb listener. The
-Windows process launcher is cross-compiled, and the Android client is rebuilt
-with process startup disabled; these are not Windows/Android runtime acceptance.
+first starts, immediate restart, and refusal to replace a non-xdb listener. Initial
+Windows launcher checks were cross-compilation; native desktop package checks
+are recorded below. The Android client is rebuilt with process startup disabled;
+this remains a cross-build check, not Android runtime acceptance.
+
+
+## Desktop distribution checks
+
+The [2026-10-24 package workflow](https://github.com/YJBeetle/XDeviceBridge/actions/runs/39997769147)
+passed at commit `06019f9` on Ubuntu 24.04 x86-64, macOS 15 arm64 and
+Windows 2025 x86-64. Each native job:
+
+- Builds pinned server dependencies and the CLI/client/server libraries.
+- Produces separate runtime and corresponding-source archives, with license texts
+  in the runtime and build caches/provenance confined to the source archive.
+- Relocates the runtime to a directory containing spaces and exercises real SDK
+  startup through both sibling-bin lookup and a separately shipped client using PATH.
+- Exchanges `server.info` through the C API and stops the background server;
+  Windows additionally waits for process exit before temporary-directory cleanup.
+- Checks that bilingual installation instructions are present and that the runtime
+  contains no static archives or CMake build cache.
+
+Local macOS checks also covered user-directory installation, command lookup and
+runtime archive SHA256 verification. macOS signatures are ad hoc; Apple notarization
+and execution on the minimum deployment OS were not tested. These packaging checks
+use isolated data directories and do not exercise physical-device services.
