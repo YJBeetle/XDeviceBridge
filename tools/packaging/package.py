@@ -158,11 +158,12 @@ def materials(stage, sources, build, prefix, origins):
                 shutil.copy2(candidates[0] / filename, target)
     if platform.system() == 'Windows':
         # Compiler DLLs use GCC's runtime exception; preserve MSYS2 package notices.
-        for name in ('gcc-libs', 'zlib', 'winpthreads'):
+        for name in ('gcc-libs', 'libgcc', 'libstdc++', 'libwinpthread', 'winpthreads', 'zlib'):
             path = mingw_prefix() / 'share/licenses' / name
             if path.is_dir():
                 shutil.copytree(path, licenses / name)
-        if not (licenses / 'gcc-libs').exists():
+        if not (licenses / 'gcc-libs').exists() and not all(
+                (licenses / name).is_dir() for name in ('libgcc', 'libstdc++')):
             raise RuntimeError('Missing MinGW GCC runtime license texts')
     logs = sources / 'build-information'
     logs.mkdir()
