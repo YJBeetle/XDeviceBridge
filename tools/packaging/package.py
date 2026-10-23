@@ -189,9 +189,14 @@ def verify_clean():
     # MSYS Git and Git for Windows can disagree about checkout line endings and
     # executable bits. Normalize these Windows checkout conventions for this check.
     options = ('-c', 'core.autocrlf=true', '-c', 'core.filemode=false') if platform.system() == 'Windows' else ()
-    status = run('git', *options, '-C', ROOT, 'status', '--porcelain', '--untracked-files=normal')
-    if status:
-        raise RuntimeError('Commit source changes before producing matching runtime/source archives:\n' + status)
+    # Compare contents instead of cached stat data produced by another Git build.
+    changes = set()
+    for args in (('diff', '--name-only', 'HEAD', '--'),
+                 ('diff', '--cached', '--name-only', 'HEAD', '--'),
+                 ('ls-files', '--others', '--exclude-standard')):
+        changes.update(run('git', *options, '-C', ROOT, *args).splitlines())
+    if changes:
+        raise RuntimeError('Commit source changes before producing matching runtime/source archives:\n' + '\n'.join(sorted(changes)))
 
 
 def main():
