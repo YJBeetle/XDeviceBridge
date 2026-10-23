@@ -50,9 +50,12 @@ if [ ! -f "$marker" ] || [ "$(cat "$marker")" != "$recipe" ]; then
     if [ "$platform" != macos ]; then
         # Limit curl to HTTP(S), with native CA lookup on Windows and system CA paths on Linux.
         curl_args=(-DBUILD_SHARED_LIBS=OFF -DBUILD_CURL_EXE=OFF -DBUILD_TESTING=OFF
-            -DHTTP_ONLY=ON -DCURL_USE_LIBPSL=OFF -DCURL_USE_LIBSSH2=OFF
+            -DUSE_NGHTTP2=OFF -DUSE_LIBIDN2=OFF -DCURL_USE_LIBPSL=OFF -DCURL_USE_LIBSSH2=OFF
             -DCURL_ZLIB=OFF -DCURL_BROTLI=OFF -DCURL_ZSTD=OFF
             -DOPENSSL_ROOT_DIR="$prefix" -DOPENSSL_USE_STATIC_LIBS=ON)
+        for protocol in DICT DOH FILE FTP GOPHER IMAP LDAP LDAPS MQTT POP3 RTSP SMTP TELNET TFTP WEBSOCKETS IPFS; do
+            curl_args+=("-DCURL_DISABLE_${protocol}=ON")
+        done
         if [ "$platform" = windows ]; then
             curl_args+=(-DCURL_USE_SCHANNEL=ON -DCURL_USE_OPENSSL=OFF)
         else
