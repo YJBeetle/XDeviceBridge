@@ -122,3 +122,8 @@ killed. See [protocol version policy](PROTOCOL.md#version-and-upgrade-policy).
 Ordinary packages CI builds are ad hoc signed. Separately labelled `notarized`
 macOS ZIPs are Developer ID signed and Apple Accepted; tickets are queried online
 because a bare CLI ZIP cannot be stapled.
+
+Version tags matching the CMake project version (`vX.Y.Z`) automatically trigger
+the macOS signing/notarization workflow. The tagged commit must be in main history.
+Manual main runs remain available; normal pushes and PRs do not submit to Apple.
+This produces accepted artifacts, not an automatic GitHub Release.

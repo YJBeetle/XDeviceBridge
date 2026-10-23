@@ -109,7 +109,8 @@ OpenSSL 和 curl 静态链接，FFmpeg 使用动态库，不开启 GPL 或 nonfr
 
 ## macOS 签名公证运行包
 
-维护者可在 main 手动运行 `macOS signed and notarized package` 工作流。
+推送与 CMake 版本一致的 `vX.Y.Z` 标签时自动运行 `macOS signed and notarized package`；
+标签提交必须属于 main 历史。维护者也可在 main 手动运行，普通提交和 PR 不触发公证。
 使用 `Build` Environment，Secrets：`MACOS_CERTIFICATE_P12_BASE64`、
 `MACOS_CERTIFICATE_PASSWORD`、`NOTARY_APPLE_ID`、`NOTARY_APP_PASSWORD`；
 Variables：`SIGNING_IDENTITY`、`SIGNING_TEAM_ID`。
