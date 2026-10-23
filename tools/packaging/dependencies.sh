@@ -33,7 +33,7 @@ if [ "$platform" != macos ]; then
     fetch "$CURL_URL" "$CURL_SHA256" "curl-$CURL_VERSION.tar.xz" "curl-$CURL_VERSION"
 fi
 marker="$prefix/recipe.txt"
-recipe="desktop-2 $platform $(uname -m) OpenSSL-$OPENSSL_VERSION curl-$CURL_VERSION FFmpeg-$FFMPEG_VERSION"
+recipe="desktop-3 $platform $(uname -m) OpenSSL-$OPENSSL_VERSION curl-$CURL_VERSION FFmpeg-$FFMPEG_VERSION"
 if [ ! -f "$marker" ] || [ "$(cat "$marker")" != "$recipe" ]; then
     (
         cd "$work/openssl-$OPENSSL_VERSION"
@@ -76,6 +76,7 @@ if [ ! -f "$marker" ] || [ "$(cat "$marker")" != "$recipe" ]; then
             --enable-shared --disable-static --enable-pic
             --enable-avcodec --enable-avutil --enable-swscale --enable-swresample --enable-avformat
             --enable-decoder=hevc,png,aac --enable-parser=hevc,aac
+            --enable-bsf=hevc_metadata
             --enable-muxer=mp4,matroska --enable-protocol=file --enable-zlib)
         if [ "$platform" = macos ]; then
             args+=(--enable-pthreads --install-name-dir=@rpath --extra-cflags=-mmacosx-version-min=13.3 --extra-ldflags=-mmacosx-version-min=13.3)

@@ -25,6 +25,14 @@ def probe(relocated, temporary):
         kernel.WaitForSingleObject.restype = C.c_uint32
         kernel.CloseHandle.argtypes = [C.c_void_p]
         dll_directory = os.add_dll_directory(str(relocated / 'bin'))
+    # Recording finalization parses HEVC parameters through this optional libav filter.
+    codecs = list((relocated / ('bin' if windows else 'lib')).glob(
+        '*avcodec*.dll' if windows else 'libavcodec*.dylib' if platform.system() == 'Darwin' else 'libavcodec.so*'))
+    assert codecs, 'Bundled libavcodec is missing'
+    codec = C.CDLL(str(sorted(codecs)[0]))
+    codec.av_bsf_get_by_name.argtypes = [C.c_char_p]
+    codec.av_bsf_get_by_name.restype = C.c_void_p
+    assert codec.av_bsf_get_by_name(b'hevc_metadata'), 'HEVC recording filter is missing'
     # Test both SDK sibling-bin lookup and a consumer shipping its own client on PATH.
     for from_path in (False, True):
         candidate = library
