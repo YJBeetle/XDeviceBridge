@@ -202,7 +202,16 @@ public:
 
 private:
     FramePump(xdb::remote::Device &device, Options options, bool verbose);
+    // Owned by loop(); decoder selection survives restarts, encoded epoch state does not.
+    struct WorkerState;
     void loop();
+    void request_keyframe(std::optional<uint32_t> media_source);
+    void record_access_unit(const AnnexBParser::AccessUnit &, std::optional<uint32_t> media_source,
+        const Nal &vps, const Nal &sps, const Nal &pps);
+    void process_encoded_unit(const AnnexBParser::AccessUnit &, WorkerState &,
+        std::optional<uint32_t> media_source, const Nal &vps, const Nal &sps, const Nal &pps);
+    bool configure_decoder(const AnnexBParser::AccessUnit &, size_t biggest, WorkerState &);
+    void on_access_unit(AnnexBParser::AccessUnit &&, WorkerState &, std::optional<uint32_t> media_source);
     /// 停止旧会话并创建新会话。首次启动也使用此入口，但不创建线程；
     /// start() 完成录制文件、时钟等初始化后再启动 worker，避免无锁字段竞争。
     bool restart(std::string &err);

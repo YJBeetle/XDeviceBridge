@@ -45,6 +45,7 @@ struct Script {
     std::vector<std::pair<Bytes, uint16_t>> sent;
     std::atomic<unsigned> factories{0}, configured{0}, decoded{0}, max_nal_calls{0}, stops{0}, probes{0};
     std::atomic<bool> decoder_available{false}, pixels{false};
+    std::size_t platform_limit = ~std::size_t{0};
     bool local_present = true, send_ok = true;
     uint32_t local = 0;
     std::optional<Session::StartStatus> fail_next;
@@ -53,6 +54,7 @@ struct Script {
         packets.clear(); starts.clear(); sent.clear(); fail_next.reset();
         factories = configured = decoded = max_nal_calls = stops = probes = 0;
         decoder_available = pixels = false;
+        platform_limit = ~std::size_t{0};
         local_present = true; local = 0; send_ok = true;
     }
     void enqueue(Bytes packet) {
@@ -113,7 +115,9 @@ struct Directory {
     ~Directory() { std::error_code ignored; std::filesystem::remove_all(path, ignored); }
 };
 class Decoder final : public xdb::Decoder {
+    std::size_t limit_;
 public:
+    explicit Decoder(std::size_t limit = ~std::size_t{0}) : limit_(limit) {}
     bool configure(const Bytes&, const Bytes&, const Bytes&) override { ++script.configured; return true; }
     bool decode(const std::vector<Bytes>&, xdb::Frame& frame) override {
         ++script.decoded;
@@ -121,7 +125,7 @@ public:
         frame.width = frame.height = 64; frame.row_pitch = 256; frame.pixels.assign(64u * 256u, 17);
         return true;
     }
-    std::size_t max_nal_size() const override { ++script.max_nal_calls; return ~std::size_t{0}; }
+    std::size_t max_nal_size() const override { ++script.max_nal_calls; return limit_; }
     const char* backend_name() const override { return "controlled"; }
 };
 void no_decode(Pump& pump) {
@@ -189,6 +193,19 @@ void startup_and_default(const Directory& directory, bool available) {
     check(wait([&] { return pump->stats().dev_sent_packets == 17 && pump->stats().dev_sent_octets == 1700; }) &&
           pump->serial() == 1, "nonrecording validation retains heartbeat counters without publishing a frame");
     check(pump->finish_recording(error) && !pump->wait_ready(0), "stop wakes and invalidates readiness");
+}
+void decoded_software_fallback() {
+    script.reset(); script.decoder_available = true; script.pixels = true;
+    script.platform_limit = 1;
+    xdb::remote::Device device; Pump::Options options; options.use_hardware = true;
+    std::string error; auto pump = Pump::start(device, options, error);
+    check(pump != nullptr, "limited platform decoder starts before its first IDR");
+    if (!pump) return;
+    auto sequence = parameters(10); script.enqueue(rtp(sequence, 0, idr, true));
+    check(pump->wait_ready(2000) && script.factories == 2 && script.configured == 1 &&
+          pump->stats().decoded == 1 && pump->stats().dropped_oversized == 0,
+          "oversized IDR switches to software and configures it before publishing pixels");
+    (void)pump->finish_recording(error);
 }
 std::unique_ptr<Pump> raw_pump(xdb::remote::Device& device, const Directory& directory,
                               std::string_view name, int stall = 0) {
@@ -464,7 +481,7 @@ std::unique_ptr<Decoder> create_software_decoder() {
 }
 std::unique_ptr<Decoder> create_platform_decoder() {
     ++script.factories;
-    return script.decoder_available ? std::make_unique<::Decoder>() : nullptr;
+    return script.decoder_available ? std::make_unique<::Decoder>(script.platform_limit) : nullptr;
 }
 } // namespace xdb
 namespace xdb::media {
@@ -504,6 +521,7 @@ int main() {
     const Directory directory; std::string error;
     const bool available = xdb::media::recording_idr_checks_available(error);
     startup_and_default(directory, available);
+    decoded_software_fallback();
     if (available) {
         healthy_static_capture(directory); loss_and_validation(directory); alive_without_idr(directory); raw_file_failure();
         epoch_and_terminal(directory, false); epoch_and_terminal(directory, true);
