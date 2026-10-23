@@ -56,7 +56,7 @@ or physical-device acceptance. They use Android API 24 and target-built dependen
 No new successful physical-device behavior is implied by the scrctl source origin.
 
 Before a stable release: complete physical-device acceptance for fresh pairing,
-DDI installation, audio listening and Android application packaging/lifecycle.
+DDI installation and Android application packaging/lifecycle.
 Existing-DDI reuse, USB input, video-only recording, desktop distribution and
 consumer capture evidence are recorded below.
 
@@ -139,3 +139,36 @@ The recorder fixture's readback checks require demuxers omitted from the minimal
 runtime, so they are not counted as passing release-dependency tests; the independent
 file decoding above verifies the actual device recording instead. Audio listening,
 fresh pairing and DDI removal/reinstallation were not exercised by this check.
+
+
+## Audio and A/V acceptance (2026-10-24)
+
+While the same USB-connected iPhone played music, a disposable server captured
+with `duplicate: true`, leaving phone playback enabled. PCM negotiation reported
+48 kHz, stereo and a 200 ms preroll. Reads returned 62,400 interleaved frames with
+nonzero samples; frame counts matched binary payload lengths.
+
+A video-and-audio MP4 finalized successfully. Independent FFprobe inspection found
+314 HEVC frames over 5.419 seconds and 502 AAC-ELD packets over 5.035 seconds.
+Audio starts at 0.295 seconds because its session starts after video; timestamps
+retain that offset. Independent FFmpeg decoding of both complete tracks returned
+no errors. This checks capture/transport/container decoding, not perceptual lip sync.
+The user also confirmed prior listening quality was satisfactory; it was not
+repeated as a new listening test during this automated check.
+
+The updated three-platform package run at `6a34bab` completed successfully:
+[packages](https://github.com/YJBeetle/XDeviceBridge/actions/runs/40003804533).
+The Developer ID package at `3cfb502` also passed Apple notarization:
+[signed package](https://github.com/YJBeetle/XDeviceBridge/actions/runs/40005397783).
+
+
+With the client pinned to `3cfb502`, MaaFramework's actual C ABI connected over USB
+and captured successfully on the first request using both Stream and
+ScreenshotService (default scaled output 720×1559); no retry loop or display-setup
+sleep was inserted. Its two iOS offline/integration tests and scrctl's existing
+xdb integration test also passed.
+
+The actual scrctl executable additionally recorded a five-second A/V MP4 through
+the disposable server with `--no-window --no-playback --audio-dup`. It finalized
+successfully, and independent FFmpeg decoding of both tracks returned no errors.
+This exercises consumer-to-server recording without repeating a listening test.
