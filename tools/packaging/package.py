@@ -36,33 +36,58 @@ def dependencies(stage, build, prefix):
     windows = platform.system() == 'Windows'
     executable = stage / 'bin' / ('xdb.exe' if windows else 'xdb')
     destination = stage / ('bin' if windows else 'lib')
-    listing = build / 'runtime-dependencies.txt'
-    search = [stage / 'lib', stage / 'bin', prefix / 'lib', prefix / 'bin']
-    if windows:
-        search.append(mingw_prefix() / 'bin')
-    run('cmake', f'-Dexecutable={executable}', f'-Doutput={listing}',
-        '-Dsearch_directories=' + ';'.join(map(str, search)), '-P', ROOT / 'tools/packaging/runtime.cmake')
     origins = {}
-    for line in listing.read_text().splitlines():
-        if not line:
-            continue
-        source = Path(line)
-        real = source.resolve()
-        if real.is_relative_to(stage):
-            continue
-        if not real.is_relative_to(prefix):
-            # Only the MinGW language runtime and zlib may come from the compiler installation.
-            if not (windows and re.fullmatch(r'(libgcc_s_.*|libstdc\+\+-6|libwinpthread-1|zlib1)\.dll', source.name, re.I)):
-                raise RuntimeError(f'Dependency escaped the release prefix: {source}')
-        target = destination / source.name
-        if target.exists() and digest(target) != digest(real):
-            raise RuntimeError(f'Conflicting runtime library: {source.name}')
-        shutil.copy2(real, target)
-        origins[target.name] = str(real)
+    if platform.system() == 'Darwin':
+        # GET_RUNTIME_DEPENDENCIES does not fall back to DIRECTORIES for @rpath
+        # on macOS. Resolve each install name against the isolated release prefix.
+        queue = [executable, *destination.glob('*.dylib')]
+        visited = set()
+        while queue:
+            binary = queue.pop()
+            if binary in visited:
+                continue
+            visited.add(binary)
+            lines = run('otool', '-L', binary).splitlines()
+            for line in lines[2 if binary.suffix == '.dylib' else 1:]:
+                old = line.strip().split(' (', 1)[0]
+                if old.startswith(('/usr/lib/', '/System/Library/')):
+                    continue
+                target = destination / Path(old).name
+                if not target.exists():
+                    source = Path(old) if old.startswith('/') else prefix / 'lib' / target.name
+                    real = source.resolve()
+                    if not real.is_relative_to(prefix) or not real.is_file():
+                        raise RuntimeError(f'Dependency escaped the release prefix: {old}')
+                    shutil.copy2(real, target)
+                    origins[target.name] = str(real)
+                queue.append(target)
+    else:
+        listing = build / 'runtime-dependencies.txt'
+        search = [stage / 'lib', stage / 'bin', prefix / 'lib', prefix / 'bin']
+        if windows:
+            search.append(mingw_prefix() / 'bin')
+        run('cmake', f'-Dexecutable={executable}', f'-Doutput={listing}',
+            '-Dsearch_directories=' + ';'.join(map(str, search)), '-P', ROOT / 'tools/packaging/runtime.cmake')
+        for line in listing.read_text().splitlines():
+            if not line:
+                continue
+            source = Path(line)
+            real = source.resolve()
+            if real.is_relative_to(stage):
+                continue
+            if not real.is_relative_to(prefix):
+                # Only the MinGW language runtime and zlib may come from the compiler installation.
+                if not (windows and re.fullmatch(r'(libgcc_s_.*|libstdc\+\+-6|libwinpthread-1|zlib1)\.dll', source.name, re.I)):
+                    raise RuntimeError(f'Dependency escaped the release prefix: {source}')
+            target = destination / source.name
+            if target.exists() and digest(target) != digest(real):
+                raise RuntimeError(f'Conflicting runtime library: {source.name}')
+            shutil.copy2(real, target)
+            origins[target.name] = str(real)
     binaries = [executable] + [p for p in destination.iterdir() if p.is_file() and (p.suffix == '.dylib' or '.so' in p.name)]
     if platform.system() == 'Darwin':
         for binary in binaries:
-            for line in run('otool', '-L', binary).splitlines()[1:]:
+            for line in run('otool', '-L', binary).splitlines()[2 if binary.suffix == '.dylib' else 1:]:
                 old = line.strip().split(' (', 1)[0]
                 if old.startswith(('/usr/lib/', '/System/Library/')):
                     continue
