@@ -8,7 +8,6 @@ import threading
 import time
 import zlib
 
-TOKEN = 'xdb-consumer-test-token'
 DISPLAY = dict(width=3, height=5, orientation='rot90', serial=1)
 PIXELS = bytes([9, 41, 93, 255]) * 4 * 6
 
@@ -55,11 +54,11 @@ class FakeServer(socketserver.ThreadingTCPServer):
 
     @property
     def config(self):
-        return dict(server_port=self.server_address[1], server_token=TOKEN)
+        return dict(server_port=self.server_address[1])
 
     @property
     def environment(self):
-        return dict(XDB_PORT=str(self.server_address[1]), XDB_TOKEN=TOKEN)
+        return dict(XDB_PORT=str(self.server_address[1]))
 
     def methods(self):
         with self.lock:
@@ -69,7 +68,7 @@ class FakeServer(socketserver.ThreadingTCPServer):
         with self.lock:
             self.calls.append((name, p))
         if name == 'hello':
-            assert p['token'] == TOKEN and p['protocol'] == 1
+            assert p == dict(protocol=1)
             return dict(protocol=1), b''
         if name == 'devices':
             return dict(devices=[dict(name='Test iPhone', udid='mock-iphone', candidates=[dict(transport='wifi', address='127.0.0.2', port=49152, paired=True)])], warnings=[], capabilities=dict(video_decode=True)), b''

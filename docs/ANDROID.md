@@ -5,9 +5,9 @@
 ```text
 Android app (UI / lifecycle / permissions)
   ├─ loads libxdb_server.so
-  │    └─ xdb_server_start(0, token, app-private-files-dir)
+  │    └─ xdb_server_start(0, app-private-files-dir)
   └─ MaaFramework / scrctl client
-       └─ libxdb_client.so → same authenticated loopback protocol
+       └─ libxdb_client.so → same loopback protocol
 ```
 
 An Android Service may host the native server if the embedding application's
@@ -17,8 +17,8 @@ private credential store. MaaFramework never receives device pairing keys.
 The application's only storage responsibility is supplying an absolute private
 persistent directory, e.g. a subdirectory of `Context.getFilesDir()`.
 
-Use `xdb_server_port()` / `xdb_server_token()` to configure clients. These are
-host-server connection details, not the iPhone pairing record. When tearing down,
+Use `xdb_server_port()` to configure clients. Local connections need no access
+token; the server still owns the iPhone pairing record. When tearing down,
 interrupt and join client requests, destroy clients, then stop the server. Server
 stop joins workers; do not block the Android UI thread on device service deadlines.
 The server library must remain loaded until all server workers have stopped.

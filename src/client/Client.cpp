@@ -24,7 +24,7 @@ thread_local std::string diagnostic;
 }
 extern "C" {
 const char *xdb_last_error() { return diagnostic.c_str(); }
-xdb_client *xdb_client_connect(uint16_t port, const char *token, xdb_event_callback event, void *userdata) {
+xdb_client *xdb_client_connect(uint16_t port, xdb_event_callback event, void *userdata) {
     diagnostic.clear();
     try {
         if (!port) {
@@ -40,12 +40,6 @@ xdb_client *xdb_client_connect(uint16_t port, const char *token, xdb_event_callb
                 port = static_cast<uint16_t>(parsed);
             }
         }
-        if (!token || !*token)
-            token = std::getenv("XDB_TOKEN");
-        if (!token || !*token) {
-            diagnostic = "port and server token are required";
-            return nullptr;
-        }
         auto client = std::make_unique<xdb_client>();
         client->socket = xdb::ipc::connect(port, diagnostic);
         if (!client->socket.valid())
@@ -54,7 +48,7 @@ xdb_client *xdb_client_connect(uint16_t port, const char *token, xdb_event_callb
         client->event = event;
         client->userdata = userdata;
         xdb_response *raw = nullptr;
-        auto params = Json{{"protocol", 1}, {"token", token}}.dump();
+        auto params = Json{{"protocol", 1}}.dump();
         if (!xdb_client_request(client.get(), "hello", params.c_str(), &raw))
             return nullptr;
         std::unique_ptr<xdb_response> response(raw);

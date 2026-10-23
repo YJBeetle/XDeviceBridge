@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: LGPL-3.0-only
 import ctypes as C
 import os
+import signal
 import json
 from pathlib import Path
 import socket
@@ -13,13 +14,13 @@ import time
 exe, client_lib, server_lib = map(Path, sys.argv[1:])
 client = C.CDLL(str(client_lib.resolve()))
 server = C.CDLL(str(server_lib.resolve()))
-server.xdb_server_start.argtypes = [C.c_uint16,C.c_char_p,C.c_char_p]
+server.xdb_server_start.argtypes = [C.c_uint16,C.c_char_p]
 server.xdb_server_start.restype = C.c_void_p
 server.xdb_server_port.argtypes = [C.c_void_p]
 server.xdb_server_port.restype = C.c_uint16
 server.xdb_server_stop.argtypes = [C.c_void_p]
 server.xdb_server_last_error.restype = C.c_char_p
-client.xdb_client_connect.argtypes = [C.c_uint16,C.c_char_p,C.c_void_p,C.c_void_p]
+client.xdb_client_connect.argtypes = [C.c_uint16,C.c_void_p,C.c_void_p]
 client.xdb_client_connect.restype = C.c_void_p
 client.xdb_client_request.argtypes = [C.c_void_p,C.c_char_p,C.c_char_p,C.POINTER(C.c_void_p)]
 client.xdb_client_destroy.argtypes = [C.c_void_p]
@@ -27,7 +28,6 @@ client.xdb_response_json.argtypes = [C.c_void_p]
 client.xdb_response_json.restype = C.c_char_p
 client.xdb_response_destroy.argtypes = [C.c_void_p]
 client.xdb_last_error.restype = C.c_char_p
-TOKEN=b'0123456789abcdef-test'
 
 def packet(value, binary=b''):
     text=json.dumps(value).encode()
@@ -52,7 +52,7 @@ def receive(s):
     return value,data
 
 def hello(s):
-    data=packet({'id':1,'method':'hello','params':{'protocol':1,'token':TOKEN.decode()}})
+    data=packet({'id':1,'method':'hello','params':{'protocol':1}})
     # TCP packet boundaries are not message boundaries.
     for start in range(0,len(data),3):
         s.sendall(data[start:start+3])
@@ -69,20 +69,18 @@ def request(c,method,params=None):
 
 with tempfile.TemporaryDirectory(prefix='xdb-ipc-') as tmp:
     data=str(Path(tmp)/'private-data').encode()
-    assert not server.xdb_server_start(0,TOKEN,b'relative'), 'relative data path accepted'
-    handle=server.xdb_server_start(0,TOKEN,data)
+    assert not server.xdb_server_start(0,b'relative'), 'relative data path accepted'
+    handle=server.xdb_server_start(0,data)
     assert handle, server.xdb_server_last_error()
     port=server.xdb_server_port(handle)
     assert port
     try:
-        assert not client.xdb_client_connect(port,b'wrong-token',None,None)
-        c=client.xdb_client_connect(port,TOKEN,None,None)
+        c=client.xdb_client_connect(port,None,None)
         assert c, client.xdb_last_error()
         try:
             assert request(c,'server.info')['result']['protocol']==1
             os.environ['XDB_PORT'] = str(port)
-            os.environ['XDB_TOKEN'] = TOKEN.decode()
-            default_client = client.xdb_client_connect(0,None,None,None)
+            default_client = client.xdb_client_connect(0,None,None)
             assert default_client, client.xdb_last_error()
             client.xdb_client_destroy(default_client)
             assert request(c,'devices',{'transport':'wifi','timeout_ms':0})['ok']
@@ -100,14 +98,20 @@ with tempfile.TemporaryDirectory(prefix='xdb-ipc-') as tmp:
             s.sendall(packet({'id':2,'method':'server.info','params':{}}))
             value,binary=receive(s)
             assert value['id']==2 and value['ok'] and binary==b''
+        for params in ({'protocol': 2}, {}):
+            with socket.create_connection(('127.0.0.1',port),timeout=2) as s:
+                s.sendall(packet({'id':1,'method':'hello','params':params}))
+                value,_=receive(s)
+                assert not value['ok'] and value['error']['code']=='handshake_rejected'
+                assert s.recv(1)==b'', 'rejected handshake did not close connection'
         for bad_header in [b'NOPE'+struct.pack('>III',1,2,0), b'XDB1'+struct.pack('>III',2,2,0), b'XDB1'+struct.pack('>III',1,1024*1024+1,0)]:
             with socket.create_connection(('127.0.0.1',port),timeout=2) as s:
                 s.sendall(bad_header)
                 assert s.recv(1)==b'', 'invalid wire header did not close connection'
-        result=subprocess.run([str(exe.resolve()),'--port',str(port),'--token',TOKEN.decode(),'rpc','server.info'],text=True,capture_output=True,timeout=5)
+        result=subprocess.run([str(exe.resolve()),'--port',str(port),'rpc','server.info'],text=True,capture_output=True,timeout=5)
         assert result.returncode==0, result.stderr
         assert json.loads(result.stdout)['ok']
-        result=subprocess.run([str(exe.resolve()),'--port',str(port),'--token',TOKEN.decode(),'devices','--wifi','--timeout','0'],text=True,capture_output=True,timeout=5)
+        result=subprocess.run([str(exe.resolve()),'--port',str(port),'devices','--wifi','--timeout','0'],text=True,capture_output=True,timeout=5)
         assert result.returncode==0 and result.stdout.startswith('List of iOS devices attached'), result.stderr
         # Stop must release idle clients blocked in recv, without requiring their cooperation.
         idle=socket.create_connection(('127.0.0.1',port),timeout=2)
@@ -118,4 +122,17 @@ with tempfile.TemporaryDirectory(prefix='xdb-ipc-') as tmp:
         assert time.monotonic()-before<3, 'idle-client shutdown blocked'
     assert idle.recv(1)==b''
     idle.close()
-print('PASS: embedded lifecycle, C client, CLI, framing, authentication, invalid requests, no-side-effect failures and shutdown')
+    process=subprocess.Popen([str(exe.resolve()),'server','--port','0','--data-dir',data.decode()],
+                             text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    try:
+        ready=json.loads(process.stdout.readline())
+        assert set(ready)=={'ready','protocol','host','port'} and ready['ready'], ready
+        assert ready['host']=='127.0.0.1'
+        result=subprocess.run([str(exe.resolve()),'--port',str(ready['port']),'rpc','server.info'],
+                              text=True,capture_output=True,timeout=5)
+        assert result.returncode==0 and json.loads(result.stdout)['ok'], result.stderr
+    finally:
+        # SIGTERM on Windows terminates the process; the embedded test above covers graceful stop.
+        process.send_signal(signal.SIGTERM)
+        process.communicate(timeout=5)
+print('PASS: embedded lifecycle, C client, CLI, framing, protocol negotiation, invalid requests, no-side-effect failures and shutdown')

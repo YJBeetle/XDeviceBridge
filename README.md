@@ -16,7 +16,7 @@ xdb CLI / scrctl / MaaFramework
               |
      libxdb_client (C API)
               |
-    authenticated loopback protocol
+    loopback protocol
               |
            xdb Server
               |
@@ -66,14 +66,13 @@ The C ABI is in [xdb.h](include/xdb/xdb.h); the wire protocol is documented in
 
 The initial version uses an explicit foreground server. Automatic `start-server`
 and background process supervision are not implemented yet. Default port: 17423.
-Server output contains a private endpoint/token: do not publish that line.
+The server listens only on loopback; local clients do not need an access token.
 
 ```sh
 # Terminal 1. --data-dir is optional; defaults to the platform user data directory.
 xdb server --port 17423
 
-# Terminal 2. Use the token printed by the server.
-export XDB_TOKEN='<server token>'
+# Terminal 2.
 xdb devices -l
 xdb pair --wifi
 # Select the advertised computer in the phone's Developer Mode pairing page.

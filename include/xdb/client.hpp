@@ -21,10 +21,10 @@ class Client {
     Client(const Client &) = delete;
     Client &operator=(const Client &) = delete;
     ~Client() { close(); }
-    bool connect(std::string &error, uint16_t port = 0, const std::string &token = {},
+    bool connect(std::string &error, uint16_t port = 0,
                  xdb_event_callback event = nullptr, void *userdata = nullptr) {
         close();
-        handle_ = xdb_client_connect(port, token.c_str(), event, userdata);
+        handle_ = xdb_client_connect(port, event, userdata);
         if (!handle_)
             error = xdb_last_error();
         return handle_ != nullptr;

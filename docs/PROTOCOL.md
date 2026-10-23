@@ -1,8 +1,9 @@
 # xdb local protocol (experimental version 1)
 
 This is the **client-to-host-server protocol**, not Apple's device protocol.
-The first implementation listens only on IPv4 loopback. Network-accessible host
-servers, service installation, plugins and remote deployment are outside its scope.
+The server listens only on IPv4 loopback and accepts local clients without
+authentication. Phone pairing and device authentication are handled separately
+by the server.
 
 ## Framing
 
@@ -24,10 +25,10 @@ Client requests currently carry no binary body. Never search for newlines to del
 The first request must be:
 
 ```json
-{"id":1,"method":"hello","params":{"protocol":1,"token":"<private server token>"}}
+{"id":1,"method":"hello","params":{"protocol":1}}
 ```
 
-Authentication/version failure closes the connection. The library performs this handshake.
+Protocol version or hello method failure closes the connection. The library performs this handshake.
 Then send one request at a time, with a unique unsigned integer `id` and object `params`:
 
 ```json
@@ -91,7 +92,7 @@ must be explicit; the current implementation does not send HEVC/AAC payloads.
 ## Consumer sessions and additional methods
 
 `connection.open` accepts `transport` (`auto`, `usb`, `wifi`) and returns a random,
-connection-private `attachment` capability. An authenticated client may call
+connection-private `attachment` capability. A client may call
 `connection.attach` with it on another socket, allowing audio/video polling and
 control to proceed independently. Keep this capability private. The session and
 device lease live until its last attached connection closes. `connection.close`
@@ -125,7 +126,7 @@ only detaches the requesting client; it does not invalidate another attachment.
 
 `devices` includes `capabilities.video_decode`; clients should derive Stream
 availability from the server, not their local libraries. In the C API, port 0
-uses `XDB_PORT` or 17423 and an empty token uses `XDB_TOKEN`. No process is started
+uses `XDB_PORT` or 17423. No process is started
 implicitly. `include/xdb/client.hpp` is an optional header-only C++ adapter; the
 binary boundary remains the C API. GUI clients can use that API directly for
 `pair` / `ddi.prepare`; device credentials never leave the server.

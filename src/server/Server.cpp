@@ -5,8 +5,6 @@
 #include <atomic>
 #include <filesystem>
 #include <mutex>
-#include <openssl/crypto.h>
-#include <openssl/rand.h>
 #include <thread>
 #ifndef _WIN32
 #include <arpa/inet.h>
@@ -22,7 +20,7 @@ struct Worker {
 struct xdb_server {
     xdb::transport::Socket listener;
     uint16_t port = 0;
-    std::string token, directory;
+    std::string directory;
     xdb::server::Registry registry;
     std::atomic<bool> stopping{false};
     std::jthread accept_thread;
@@ -46,16 +44,13 @@ void xdb_server::run_client(Worker &worker) noexcept {
         auto hello = xdb::ipc::parse_json(message.json);
         auto id = hello.value("id", uint64_t(0));
         auto params = hello.value("params", Json::object());
-        auto supplied = params.value("token", std::string());
-        if (hello.value("method", std::string()) != "hello" || params.value("protocol", 0) != 1 ||
-            supplied.size() != token.size() ||
-            CRYPTO_memcmp(supplied.data(), token.data(), token.size()) != 0) {
+        if (hello.value("method", std::string()) != "hello" || params.value("protocol", 0) != 1) {
             ipc::write(worker.socket,
                        {Json{{"id", id},
                              {"ok", false},
                              {"error",
                               {{"code", "handshake_rejected"},
-                               {"message", "Authentication or protocol version rejected"}}}}
+                               {"message", "Protocol version or hello method rejected"}}}}
                             .dump(),
                         {}},
                        error);
@@ -167,7 +162,7 @@ xdb_server::~xdb_server() {
 }
 extern "C" {
 const char *xdb_server_last_error() { return diagnostic.c_str(); }
-xdb_server *xdb_server_start(uint16_t port, const char *token, const char *directory) {
+xdb_server *xdb_server_start(uint16_t port, const char *directory) {
     diagnostic.clear();
     try {
         if (!directory || !std::filesystem::u8path(directory).is_absolute()) {
@@ -176,24 +171,6 @@ xdb_server *xdb_server_start(uint16_t port, const char *token, const char *direc
         }
         auto server = std::make_unique<xdb_server>();
         server->directory = directory;
-        if (token && *token)
-            server->token = token;
-        else {
-            unsigned char bytes[32];
-            if (RAND_bytes(bytes, sizeof(bytes)) != 1) {
-                diagnostic = "Failed to generate server token";
-                return nullptr;
-            }
-            static constexpr char hex[] = "0123456789abcdef";
-            for (auto byte : bytes) {
-                server->token += hex[byte >> 4];
-                server->token += hex[byte & 15];
-            }
-        }
-        if (server->token.size() < 16 || server->token.size() > 256) {
-            diagnostic = "Server token must contain 16..256 bytes";
-            return nullptr;
-        }
         if (!xdb::transport::initialize_sockets(diagnostic))
             return nullptr;
         server->listener = xdb::transport::Socket(::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP));
@@ -228,6 +205,5 @@ xdb_server *xdb_server_start(uint16_t port, const char *token, const char *direc
     }
 }
 uint16_t xdb_server_port(const xdb_server *server) { return server ? server->port : 0; }
-const char *xdb_server_token(const xdb_server *server) { return server ? server->token.c_str() : ""; }
 void xdb_server_stop(xdb_server *server) { delete server; }
 }

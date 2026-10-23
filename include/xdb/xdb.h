@@ -28,18 +28,16 @@ typedef struct xdb_response xdb_response;
 typedef void (*xdb_event_callback)(const char *json, void *userdata);
 // Thread-local diagnostic, borrowed until the next API call on this thread.
 XDB_CLIENT_API const char *xdb_last_error(void);
-// Loopback only. Port 0 selects a free port. Empty token generates a private token.
+// Loopback only. Port 0 selects a free port. Local clients connect without authentication.
 // data_directory must be an absolute path owned by the embedding application.
 // Stop joins all workers. Must not be called from an event callback.
 XDB_SERVER_API const char *xdb_server_last_error(void);
-XDB_SERVER_API xdb_server *xdb_server_start(uint16_t port, const char *token, const char *data_directory);
+XDB_SERVER_API xdb_server *xdb_server_start(uint16_t port, const char *data_directory);
 XDB_SERVER_API uint16_t xdb_server_port(const xdb_server *server);
-XDB_SERVER_API const char *xdb_server_token(const xdb_server *server);
 XDB_SERVER_API void xdb_server_stop(xdb_server *server);
 // Client library never launches a process or loads the device backend.
-// Port 0 uses XDB_PORT or 17423. Empty token uses XDB_TOKEN.
-XDB_CLIENT_API xdb_client *xdb_client_connect(uint16_t port, const char *token, xdb_event_callback event,
-                                              void *userdata);
+// Port 0 uses XDB_PORT or 17423.
+XDB_CLIENT_API xdb_client *xdb_client_connect(uint16_t port, xdb_event_callback event, void *userdata);
 // One outstanding request per client. Response owns JSON and any binary payload.
 // Returns 1 when a well-formed response was received; inspect its `ok` field.
 XDB_CLIENT_API int xdb_client_request(xdb_client *client, const char *method, const char *params_json,

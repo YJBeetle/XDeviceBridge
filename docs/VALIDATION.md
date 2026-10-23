@@ -5,7 +5,7 @@ The initial implementation was checked locally on macOS:
 - Full native CLI, server and client build.
 - Existing derived JSON/plist/HID/DDI-selection offline tests.
 - A real local TCP server exercised by the C client, CLI and fragmented raw messages.
-- Authentication/version rejection, oversized message rejection, invalid requests,
+- Protocol version rejection, oversized message rejection, invalid requests,
   no persistent state after invalid imports, and shutdown with an idle client.
 - A separate client-only build.
 - Android arm64 client, server and CLI compilation/linkage with API 24. The server

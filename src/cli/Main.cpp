@@ -51,7 +51,7 @@ int number(const std::string &value, int minimum, int maximum) {
 }
 void help() {
     std::cout << "XDeviceBridge 0.1.0\n"
-                 "xdb server [--data-dir DIR] [--port PORT] [--token TOKEN]\n"
+                 "xdb server [--data-dir DIR] [--port PORT]\n"
                  "xdb devices [-l] [--usb|--wifi] [--timeout MS]\n"
                  "xdb [-s UDID] pair [--wifi|--usb] [--timeout MS]\n"
                  "xdb -s UDID ddi prepare [--wifi [ADDRESS]] [--cache-dir DIR] [--replace]\n"
@@ -59,9 +59,9 @@ void help() {
                  "xdb pairing import FILE\n"
                  "xdb rpc METHOD [JSON_PARAMS] [--output FILE]\n"
                  "xdb rpc-shell\n"
-                 "Client options: --port PORT --token TOKEN (or XDB_PORT / XDB_TOKEN).\n"
+                 "Client options: --port PORT (or XDB_PORT).\n"
                  "Server listens on loopback only. Default port: 17423. --port 0 selects a free port.\n"
-                 "A foreground server prints its private endpoint/token once. Automatic startup is not "
+                 "A foreground server prints its listening port. Automatic startup is not "
                  "implemented yet.\n"
                  "rpc-shell is a JSON debugging console, not an iOS command shell.\n";
 }
@@ -73,7 +73,7 @@ int main(int argc, char **argv) {
             return 0;
         }
         uint16_t port = *env("XDB_PORT") ? uint16_t(number(env("XDB_PORT"), 1, 65535)) : 17423;
-        std::string token = env("XDB_TOKEN"), dir, output, serial, wifi_address, cache;
+        std::string dir, output, serial, wifi_address, cache;
         bool wifi = false, usb = false, replace = false, json_output = false;
         int timeout = -1;
         std::vector<std::string> args;
@@ -97,14 +97,12 @@ int main(int argc, char **argv) {
             else if (a == "--json")
                 json_output = true;
             else if (a == "-l") {
-            } else if (a == "--port" || a == "--token" || a == "--data-dir" || a == "--output" || a == "-s" ||
+            } else if (a == "--port" || a == "--data-dir" || a == "--output" || a == "-s" ||
                        a == "--serial" || a == "--timeout" || a == "--cache-dir") {
                 if (++i == argc)
                     throw std::invalid_argument("Missing value for " + a);
                 if (a == "--port")
                     port = uint16_t(number(argv[i], 0, 65535));
-                else if (a == "--token")
-                    token = argv[i];
                 else if (a == "--data-dir")
                     dir = argv[i];
                 else if (a == "--output")
@@ -129,7 +127,7 @@ int main(int argc, char **argv) {
                 throw std::invalid_argument("Unexpected server argument");
             if (dir.empty())
                 dir = data_directory().string();
-            auto *server = xdb_server_start(port, token.c_str(), dir.c_str());
+            auto *server = xdb_server_start(port, dir.c_str());
             if (!server) {
                 std::cerr << xdb_server_last_error() << '\n';
                 return 1;
@@ -140,18 +138,15 @@ int main(int argc, char **argv) {
             std::cout << Json{{"ready", true},
                               {"protocol", 1},
                               {"host", "127.0.0.1"},
-                              {"port", xdb_server_port(server)},
-                              {"token", xdb_server_token(server)}}
+                              {"port", xdb_server_port(server)}}
                              .dump()
                       << std::endl;
             while (!stopping)
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
             return 0;
         }
-        if (token.empty())
-            throw std::invalid_argument("Set XDB_TOKEN (printed by xdb server) or supply --token");
         std::unique_ptr<xdb_client, decltype(&xdb_client_destroy)> client(
-            xdb_client_connect(port, token.c_str(), event, nullptr), xdb_client_destroy);
+            xdb_client_connect(port, event, nullptr), xdb_client_destroy);
         if (!client) {
             std::cerr << xdb_last_error() << '\n';
             return 1;
