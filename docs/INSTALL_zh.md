@@ -97,3 +97,18 @@ OpenSSL 和 curl 静态链接，FFmpeg 使用动态库，不开启 GPL 或 nonfr
 
 运行包与源码包独立生成。源码材料包含确切的仓库提交、获取的依赖源码、上游源码归档、
 配置和构建信息，以及文件哈希。构建缓存和含绝对路径的来源信息仅保存在源码包中。
+
+## macOS 签名公证运行包
+
+维护者可在 main 手动运行 `macOS signed and notarized package` 工作流。
+使用 `Build` Environment，Secrets：`MACOS_CERTIFICATE_P12_BASE64`、
+`MACOS_CERTIFICATE_PASSWORD`、`NOTARY_APPLE_ID`、`NOTARY_APP_PASSWORD`；
+Variables：`SIGNING_IDENTITY`、`SIGNING_TEAM_ID`。
+P12 包含 Developer ID Application 私钥；NOTARY_APP_PASSWORD 为 App 专用密码。
+
+任务在安装名改写完成后给程序及动态库签名，并在签名后记录运行包与源码材料哈希。
+主程序启用 Hardened Runtime，使用安全时间戳。临时签名钥匙串自动删除。
+仅在 Apple 返回 Accepted 后上传 `xdb-macos-notarized` 运行 ZIP、对应源码及校验和；
+公证响应另作为 `macos-notarization-result` 附件保留。任务不自动发布 Release。
+普通 packages 工作流仍为 ad hoc 开发包。ZIP 和裸 CLI 不能 staple，
+Gatekeeper 需联网查询票据；若需离线票据，应另行分发可 staple 的 DMG/PKG。

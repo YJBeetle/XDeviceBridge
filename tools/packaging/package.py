@@ -205,7 +205,11 @@ def main():
     parser.add_argument('--dependencies', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--config', default='Release')
+    parser.add_argument('--developer-id-sign', action='store_true',
+                        help='Sign staged macOS code before recording source/runtime hashes')
     args = parser.parse_args()
+    if args.developer_id_sign and platform.system() != 'Darwin':
+        parser.error('--developer-id-sign requires macOS')
     verify_clean()
     build, prefix, output = args.build.resolve(), args.dependencies.resolve(), args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -226,6 +230,8 @@ def main():
         if platform.system() != 'Windows':
             shutil.copy2(ROOT / 'tools/packaging/install.sh', stage / 'install.sh')
         origins = dependencies(stage, build, prefix)
+        if args.developer_id_sign:
+            subprocess.run(['bash', str(ROOT / 'tools/packaging/sign_macos_package.sh'), str(stage), 'xdb'], check=True)
         materials(stage, sources, build, prefix, origins)
         for directory in (stage, sources):
             if platform.system() == 'Windows':

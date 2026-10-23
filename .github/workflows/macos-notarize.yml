@@ -1,0 +1,98 @@
+name: macOS signed and notarized package
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  desktop:
+    if: github.ref == 'refs/heads/main'
+    environment: Build
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Linux tools
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build nasm patchelf zlib1g-dev
+      - name: macOS tools
+        if: runner.os == 'macOS'
+        run: brew install ninja pkg-config
+      - uses: actions/cache/restore@v6
+        id: deps-cache
+        with:
+          path: build-release-deps
+          key: xdb-release-deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tools/packaging/dependencies.sh', 'tools/android-deps.sh') }}
+      - name: Build dependencies (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: tools/packaging/dependencies.sh "$PWD/build-release-deps"
+      - uses: actions/cache/save@v6
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        with:
+          path: build-release-deps
+          key: ${{ steps.deps-cache.outputs.cache-primary-key }}
+      - name: Build and package (Unix)
+        env:
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          SIGNING_IDENTITY: ${{ vars.SIGNING_IDENTITY }}
+          SIGNING_TEAM_ID: ${{ vars.SIGNING_TEAM_ID }}
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          export PKG_CONFIG_PATH="$PWD/build-release-deps/lib/pkgconfig"
+          if [ "$RUNNER_OS" = macOS ]; then export MACOSX_DEPLOYMENT_TARGET=13.3; fi
+          cmake -C build-release-deps/xdb.cmake -S . -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DXDB_BUILD_TESTS=OFF
+          cmake --build build-release --parallel 4
+          python3 tools/packaging/package.py --build build-release --dependencies build-release-deps --output build-packages --developer-id-sign
+          mkdir build-package-smoke
+          tar -xf "$(find build-packages -name '*.tar.gz' ! -name '*-sources*' -print -quit)" -C build-package-smoke
+          python3 tools/packaging/smoke.py build-package-smoke/xdb-*
+      - name: Submit ZIP to Apple
+        env:
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_APP_PASSWORD: ${{ secrets.NOTARY_APP_PASSWORD }}
+          SIGNING_TEAM_ID: ${{ vars.SIGNING_TEAM_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${NOTARY_APPLE_ID:?Missing Apple ID}"
+          : "${NOTARY_APP_PASSWORD:?Missing app-specific password}"
+          : "${SIGNING_TEAM_ID:?Missing team ID}"
+          archive="xdb-macos-$(uname -m)-notarized.zip"
+          ditto -c -k --sequesterRsrc --keepParent build-package-smoke/xdb-* "$archive"
+          # The ticket is published online; ZIP and bare tools cannot be stapled.
+          xcrun notarytool submit "$archive" --apple-id "$NOTARY_APPLE_ID" \
+            --password "$NOTARY_APP_PASSWORD" --team-id "$SIGNING_TEAM_ID" \
+            --wait --timeout 30m --output-format json > notarization.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          result = json.loads(Path('notarization.json').read_text())
+          if result.get('status') != 'Accepted':
+              raise SystemExit('Apple notarization was not Accepted; see notarization.json')
+          PY
+          shasum -a 256 "$archive" build-packages/*-sources.tar.gz > SHA256SUMS.txt
+      - name: Upload notarization result
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: macos-notarization-result
+          path: notarization.json
+          if-no-files-found: ignore
+      - name: Upload signed delivery
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: xdb-macos-notarized
+          path: |
+            xdb-macos-*-notarized.zip
+            build-packages/*-sources.tar.gz
+            SHA256SUMS.txt
+          compression-level: 0
+          if-no-files-found: error
