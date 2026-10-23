@@ -118,7 +118,7 @@ def materials(stage, sources, build, prefix, origins):
     # Preserve exact fetched sources separately; never copy build caches into the runtime.
     external = sources / 'dependencies'
     external.mkdir(parents=True)
-    for archive in sorted((prefix / 'sources').glob('*.tar.*')):
+    for archive in sorted(p for p in (prefix / 'sources').glob('*.tar.*') if p.name.endswith(('.tar.gz', '.tar.xz'))):
         shutil.copy2(archive, external)
     cache = (build / 'CMakeCache.txt').read_text()
     for name in ('nlohmann_json', 'pugixml', 'mdns', 'lwip'):
@@ -221,7 +221,7 @@ def main():
             else:
                 with tarfile.open(output / (directory.name + '.tar.gz'), 'w:gz') as archive:
                     archive.add(directory, arcname=directory.name)
-        packages = sorted(output.glob(label + '*'))
+        packages = sorted(p for p in output.glob(label + '*') if p.name.endswith(('.tar.gz', '.zip')))
         (output / (label + '-SHA256SUMS.txt')).write_text(''.join(f'{digest(p)}  {p.name}\n' for p in packages if p.is_file()))
         print('\n'.join(map(str, packages)))
 
