@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def run(*args, **kwargs):
-    return subprocess.check_output([str(a) for a in args], text=True, **kwargs).strip()
+    return subprocess.check_output([str(a) for a in args], text=True, encoding='utf-8', **kwargs).strip()
 
 
 def digest(path):
@@ -68,7 +68,7 @@ def dependencies(stage, build, prefix):
             search.append(mingw_prefix() / 'bin')
         run('cmake', f'-Dexecutable={executable}', f'-Doutput={listing}',
             '-Dsearch_directories=' + ';'.join(map(str, search)), '-P', ROOT / 'tools/packaging/runtime.cmake')
-        for line in listing.read_text().splitlines():
+        for line in listing.read_text(encoding='utf-8').splitlines():
             if not line:
                 continue
             source = Path(line)
@@ -120,7 +120,7 @@ def materials(stage, sources, build, prefix, origins):
     external.mkdir(parents=True)
     for archive in sorted(p for p in (prefix / 'sources').glob('*.tar.*') if p.name.endswith(('.tar.gz', '.tar.xz'))):
         shutil.copy2(archive, external)
-    cache = (build / 'CMakeCache.txt').read_text()
+    cache = (build / 'CMakeCache.txt').read_text(encoding='utf-8')
     for name in ('nlohmann_json', 'pugixml', 'mdns', 'lwip'):
         match = re.search(rf'^{name}_SOURCE_DIR:[^=]+=(.+)$', cache, re.M)
         path = Path(match.group(1)) if match else build / '_deps' / (name + '-src')
@@ -174,7 +174,7 @@ def materials(stage, sources, build, prefix, origins):
             shutil.copy2(path, logs / path.name)
     shutil.copy2(build / 'CMakeCache.txt', logs / 'xdb-CMakeCache.txt')
     openssl = next(p for p in (prefix / 'sources').glob('openssl-*') if p.is_dir() and (p / 'configdata.pm').is_file())
-    (logs / 'openssl-configuration.txt').write_text(run('perl', 'configdata.pm', '--dump', cwd=openssl) + '\n')
+    (logs / 'openssl-configuration.txt').write_text(run('perl', 'configdata.pm', '--dump', cwd=openssl) + '\n', encoding='utf-8')
     # Only committed repository contents are release sources. Dirty packaging is refused below.
     with (sources / 'XDeviceBridge.tar').open('wb') as stream:
         subprocess.run(['git', '-C', str(ROOT), 'archive', 'HEAD'], stdout=stream, check=True)
@@ -182,7 +182,7 @@ def materials(stage, sources, build, prefix, origins):
                 'platform': platform.platform(), 'runtime_origins': origins,
                 'runtime_sha256': {str(p.relative_to(stage)): digest(p) for p in stage.rglob('*') if p.is_file()},
                 'sources_sha256': {str(p.relative_to(sources)): digest(p) for p in sources.rglob('*') if p.is_file()}}
-    (sources / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+    (sources / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
 
 
 def verify_clean():
@@ -237,7 +237,7 @@ def main():
                 with tarfile.open(output / (directory.name + '.tar.gz'), 'w:gz') as archive:
                     archive.add(directory, arcname=directory.name)
         packages = sorted(p for p in output.glob(label + '*') if p.name.endswith(('.tar.gz', '.zip')))
-        (output / (label + '-SHA256SUMS.txt')).write_text(''.join(f'{digest(p)}  {p.name}\n' for p in packages if p.is_file()))
+        (output / (label + '-SHA256SUMS.txt')).write_text(''.join(f'{digest(p)}  {p.name}\n' for p in packages if p.is_file()), encoding='utf-8')
         print('\n'.join(map(str, packages)))
 
 
