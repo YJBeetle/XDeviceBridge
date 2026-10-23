@@ -1,6 +1,6 @@
 # Invoked after cmake --install, never against a shared system prefix.
 if(WIN32)
-    set(excludes POST_EXCLUDE_REGEXES "[Ww][Ii][Nn][Dd][Oo][Ww][Ss][/\\\\](System32|SysWOW64)[/\\\\].*")
+    set(excludes POST_EXCLUDE_REGEXES "[Ww][Ii][Nn][Dd][Oo][Ww][Ss][/\\\\]([Ss][Yy][Ss][Tt][Ee][Mm]32|[Ss][Yy][Ss][Ww][Oo][Ww]64)[/\\\\].*")
     set(pre PRE_EXCLUDE_REGEXES "api-ms-.*" "ext-ms-.*")
 elseif(APPLE)
     set(excludes POST_EXCLUDE_REGEXES "^/usr/lib/.*" "^/System/Library/.*")
