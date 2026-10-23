@@ -150,8 +150,8 @@ raw requests. `rpc-shell` maintains a client session; it is not an iOS command s
   Do not automatically retry input, pairing or image replacement after an unknown outcome.
 - Cancellation uses client disconnection or server shutdown. Existing device service calls
   may finish at their own deadlines; immediate cancellation of every service is not promised.
-- Audio and recording core code are retained from the source project, but are not exposed
-  in the initial public protocol. Encoded video remains follow-up work.
+- PCM audio transport and server-side raw HEVC / MP4 / MKV recording are available
+  through RPC. Encoded HEVC/AAC transport to clients remains follow-up work.
 - Cross-build success does not prove Android application packaging, lifecycle, permission
   handling or physical-device behavior. See [validation](docs/VALIDATION.md).
 
