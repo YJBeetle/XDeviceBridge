@@ -399,9 +399,28 @@ Reply Backend::handle(const std::string &method, const Json &p, const Event &eve
         return Json{
             {"width", g.width}, {"height", g.height}, {"orientation", g.orientation}, {"serial", g.seq}};
     };
-    if (method == "display.info") {
+    const auto prepare_display = [&] {
         if (!s.display)
             s.display = remote::DisplayWatcher::start(s.device, 1, error);
+        if (!s.display)
+            return false;
+        // Subscription setup precedes its first asynchronous state. Do not treat
+        // unknown -> known geometry as a device rotation during the first capture.
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (!cancel()) {
+            const auto state = s.display->latest();
+            if (state.width > 0 && state.height > 0 && !state.orientation.empty())
+                return true;
+            if (!s.display->alive() || std::chrono::steady_clock::now() >= deadline)
+                break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        error = cancel() ? "Display initialization cancelled" : "Timed out waiting for initial display geometry";
+        return false;
+    };
+    if (method == "display.info") {
+        if (!prepare_display())
+            return fail(error);
         Reply r;
         r.result = geometry();
         return r;
@@ -443,8 +462,8 @@ Reply Backend::handle(const std::string &method, const Json &p, const Event &eve
         return r;
     }
     if (method == "screenshot") {
-        if (!s.display)
-            s.display = remote::DisplayWatcher::start(s.device, 1, error);
+        if (!prepare_display())
+            return fail(error);
         auto before = geometry();
         auto input = xpc::make_dict();
         xpc::dict_set(input, "displayUniqueID", xpc::make_null());
