@@ -186,7 +186,10 @@ def materials(stage, sources, build, prefix, origins):
 
 
 def verify_clean():
-    status = run('git', '-C', ROOT, 'status', '--porcelain', '--untracked-files=normal')
+    # MSYS Git and Git for Windows can disagree about checkout line endings and
+    # executable bits. Normalize these Windows checkout conventions for this check.
+    options = ('-c', 'core.autocrlf=true', '-c', 'core.filemode=false') if platform.system() == 'Windows' else ()
+    status = run('git', *options, '-C', ROOT, 'status', '--porcelain', '--untracked-files=normal')
     if status:
         raise RuntimeError('Commit source changes before producing matching runtime/source archives:\n' + status)
 
