@@ -207,7 +207,8 @@ def main():
             path.unlink()
         for path in (stage / 'lib').glob('*.lib'):
             path.unlink()
-        shutil.copy2(ROOT / 'docs/INSTALL.md', stage / 'INSTALL.md')
+        for name in ('INSTALL.md', 'INSTALL_zh.md', 'ANDROID.md'):
+            shutil.copy2(ROOT / 'docs' / name, stage / name)
         if platform.system() != 'Windows':
             shutil.copy2(ROOT / 'tools/packaging/install.sh', stage / 'install.sh')
         origins = dependencies(stage, build, prefix)

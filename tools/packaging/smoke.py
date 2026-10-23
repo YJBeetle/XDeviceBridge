@@ -57,6 +57,8 @@ with tempfile.TemporaryDirectory(prefix='xdb installed ') as temporary:
         finally:
             client.xdb_client_destroy(handle)
             subprocess.run([str(executable), '--port', str(port), 'kill-server'], check=True, timeout=15)
+    for document in ('INSTALL.md', 'INSTALL_zh.md', 'ANDROID.md'):
+        assert (relocated / document).is_file(), document
     assert not list(relocated.rglob('CMakeCache.txt'))
     assert not list(relocated.rglob('*.a'))
 print('Relocated CLI, SDK sibling-bin lookup and consumer PATH lookup passed')

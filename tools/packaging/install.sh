@@ -12,7 +12,7 @@ if [ -d "$prefix" ] && [ -n "$(ls -A "$prefix")" ] && [ ! -f "$prefix/.xdb-insta
     exit 1
 fi
 mkdir -p "$prefix" "$bindir"
-for item in bin lib share INSTALL.md install.sh; do
+for item in bin lib share INSTALL.md INSTALL_zh.md ANDROID.md install.sh; do
     [ ! -e "$source_dir/$item" ] || cp -R "$source_dir/$item" "$prefix/"
 done
 : > "$prefix/.xdb-install"
