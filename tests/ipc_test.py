@@ -81,7 +81,11 @@ with tempfile.TemporaryDirectory(prefix='xdb-ipc-') as tmp:
         c=client.xdb_client_connect(port,None,None)
         assert c, client.xdb_last_error()
         try:
-            assert request(c,'server.info')['result']['protocol']==1
+            info = request(c,'server.info')['result']
+            assert info['protocol']==1 and info['version']
+            unknown = request(c,'future.optional.method')
+            assert not unknown['ok'] and unknown['error']['code']=='not_connected'
+            assert request(c,'server.info',{'future_optional_field':True})['ok']
             os.environ['XDB_PORT'] = str(port)
             default_client = client.xdb_client_connect(0,None,None)
             assert default_client, client.xdb_last_error()

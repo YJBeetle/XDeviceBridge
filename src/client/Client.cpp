@@ -54,7 +54,7 @@ std::unique_ptr<xdb_client> connect_existing(uint16_t port, bool &not_running) {
     std::unique_ptr<xdb_response> response(raw);
     auto value = xdb::ipc::parse_json(response->message.json);
     if (!value.value("ok", false) || value.value("result", Json::object()).value("protocol", 0) != 1) {
-        diagnostic = "xdb handshake rejected";
+        diagnostic = "xdb handshake rejected: incompatible protocol; stop the existing server with its original xdb kill-server, then start the matching version";
         return nullptr;
     }
     client->socket.set_read_timeout(0, diagnostic);

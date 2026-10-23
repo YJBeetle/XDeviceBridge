@@ -1,5 +1,45 @@
 # Validation
 
+## 2026-10-24: current XDB path and upgrade checks
+
+- macOS / iPhone14,4 / iOS 27.0.1, USB, real CLI and C client against an
+  isolated server port: existing USB pairing was verified/reused; `ddi.prepare`
+  confirmed an existing Personalized mount without downloading or reinstalling.
+- New-session screenshots initially returned `geometry_changed` because the first
+  display update arrived after capture started. The backend now waits at most two
+  seconds for initial valid geometry, checks cancellation, and still rejects a
+  genuine geometry change during capture. Fresh-session PNG capture then passed.
+- `display.info` returned 1125 x 2436; software `video.frame` returned a decoded
+  1136 x 2464 BGRA frame with matching native display geometry. App launch passed.
+- Real touch/HID input in Safari: cleared the address field, sent `xdb-input-123`,
+  waited for device UI consumption, sent backspace DOWN/UP, and visually verified
+  `xdb-input-12` in a returned screenshot. No clipboard or navigation was used.
+  An earlier simultaneous modifier+A sequence was not a valid chord setup; an
+  immediate screenshot also preceded processing of the queued HID reports.
+- With user-started QQ Music, `audio.start` (duplicate=true, buffer_ms=200) returned
+  48 kHz / stereo. Three reads each returned 4800 frames / 19200 bytes with nonzero
+  sample peaks; `audio.stop` succeeded. The computer did not play these samples.
+  This proves PCM delivery, not subjective quality or phone-speaker routing.
+- The downloaded Apple-Accepted scrctl/XDB macOS ZIPs and matching source archives
+  passed SHA256 checks and extracted executable `--help` startup. The updated Unix
+  installer was exercised with the signed native XDB runtime in temporary paths:
+  live server stopped, stale library removed, restarted server PID changed and
+  the separate data directory was retained. No user installation was replaced.
+- 43 native offline tests passed. New installer cases cover managed upgrade,
+  stale removal, unmanaged directory/foreign command refusal, invalid new runtime,
+  stop failure preservation and activation rollback. IPC/lifecycle regressions
+  cover recoverable request errors and refusing to replace a protocol-2 listener.
+
+These checks do not claim fresh Wi-Fi PIN pairing, DDI replacement installation,
+subjective audio quality, Windows installer execution, another iPhone/iPad model,
+physical disconnection or long-duration stability in this round. Only USB was
+usable for discovery during these checks. Earlier device results remain historical
+where they used the pre-XDB backend; the protocol and installer policies are in
+PROTOCOL.md and INSTALL.md / INSTALL_zh.md. The prior notarized binaries predate
+these fixes and must be rebuilt/notarized before releasing the updated revision.
+
+## Historical initial migration checks
+
 The initial implementation was checked locally on macOS:
 
 - Full native CLI, server and client build.

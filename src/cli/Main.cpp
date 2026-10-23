@@ -51,7 +51,7 @@ int number(const std::string &value, int minimum, int maximum) {
     return int(n);
 }
 void help() {
-    std::cout << "XDeviceBridge 0.1.0\n"
+    std::cout << "XDeviceBridge " XDB_VERSION_STRING "\n"
                  "xdb start-server [--data-dir DIR] [--port PORT]\n"
                  "xdb kill-server [--port PORT]\n"
                  "xdb server [--data-dir DIR] [--port PORT]\n"

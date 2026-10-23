@@ -5,6 +5,37 @@ The server listens only on IPv4 loopback and accepts local clients without
 authentication. Phone pairing and device authentication are handled separately
 by the server.
 
+## Version and upgrade policy
+
+The package version (currently 0.1.0), C ABI and wire protocol are separate contracts.
+The protocol number in the frame header and `hello.params.protocol` must both be 1.
+A package version mismatch alone is not a reason to kill or replace a server.
+
+Within protocol 1:
+
+- New optional request fields must preserve the old behavior when omitted.
+- Clients must ignore unknown result fields; servers may add result fields/events.
+  Event consumers must tolerate names they do not use. Required fields and existing
+  error codes keep their documented meanings; error messages are diagnostic text.
+- New methods may be added. A client must handle `unknown_method`/operation failure
+  instead of assuming the method exists because a package version looks new enough.
+- Removing a method/field, changing its type/units/default meaning or media body layout
+  requires a new protocol number. This includes ownership/lifetime changes.
+- Rejected handshakes close the connection and never trigger automatic replacement
+  of a listener. Use the executable that owns the old service to stop it, then start
+  the desired version. The SDK never kills an occupied/incompatible port automatically.
+
+The C SDK owns opaque handles and response buffers as documented in `xdb.h`.
+Existing exported entry points keep their signatures within the published ABI;
+new entry points are additive and consumers must check optional symbols. Protocol
+compatibility does not imply an Apple device supports a requested feature.
+
+`0.x` signals that new protocol/ABI generations may be introduced before 1.0;
+such breaks still require an explicit protocol change and migration notes. Users
+should ship a tested client/server combination, and keep older packages available
+for rollback. Pairing data is retained during installation; any future incompatible
+on-disk migration must preserve the prior records or offer an explicit export path.
+
 ## Framing
 
 Each message is a 16-byte header followed by UTF-8 JSON and optional raw binary:

@@ -68,7 +68,7 @@ void xdb_server::run_client(Worker &worker) noexcept {
         }
         if (!ipc::write(
                 worker.socket,
-                {Json{{"id", id}, {"ok", true}, {"result", {{"protocol", 1}, {"version", "0.1.0"}}}}.dump(),
+                {Json{{"id", id}, {"ok", true}, {"result", {{"protocol", 1}, {"version", XDB_VERSION_STRING}}}}.dump(),
                  {}},
                 error)) {
             worker.done = true;
@@ -118,7 +118,7 @@ void xdb_server::run_client(Worker &worker) noexcept {
                 auto method = request["method"].get<std::string>();
                 if (method == "server.info")
                     result.result = {
-                        {"protocol", 1}, {"version", "0.1.0"}, {"device_transport", "usb-or-wifi"},
+                        {"protocol", 1}, {"version", XDB_VERSION_STRING}, {"device_transport", "usb-or-wifi"},
 #ifdef _WIN32
                         {"pid", GetCurrentProcessId()}};
 #else

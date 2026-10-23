@@ -123,6 +123,24 @@ with tempfile.TemporaryDirectory(prefix='xdb-lifecycle-') as tmp:
             thread.join(timeout=3)
             assert not thread.is_alive()
             assert 'unsupported xdb wire version' in result.stderr, result.stderr
+        # A valid xdb frame advertising a different protocol also must not be
+        # replaced, even when an executable is available for automatic startup.
+        with socket.socket() as incompatible:
+            incompatible.bind(('127.0.0.1', 0))
+            incompatible.listen()
+            def reject_protocol():
+                connection, _ = incompatible.accept()
+                with connection:
+                    connection.recv(4096)
+                    body = json.dumps(dict(id=1, ok=True, result=dict(protocol=2, version='9.0'))).encode()
+                    connection.sendall(b'XDB1' + struct.pack('>III', 1, len(body), 0) + body)
+            thread = threading.Thread(target=reject_protocol)
+            thread.start()
+            result = run(incompatible.getsockname()[1], 'start-server', success=False)
+            thread.join(timeout=3)
+            assert not thread.is_alive()
+            assert 'incompatible protocol' in result.stderr and 'kill-server' in result.stderr, result.stderr
+            assert listening(incompatible.getsockname()[1]), 'incompatible listener was stopped'
     finally:
         assert client.xdb_client_kill_server(port), client.xdb_last_error()
         assert not listening(port)
