@@ -22,6 +22,9 @@ token; the server still owns the iPhone pairing record. When tearing down,
 interrupt and join client requests, destroy clients, then stop the server. Server
 stop joins workers; do not block the Android UI thread on device service deadlines.
 The server library must remain loaded until all server workers have stopped.
+Desktop automatic process startup is disabled on Android. If a client requests
+shutdown, `xdb_server_is_running()` becomes false; the App still owns the handle
+and must call `xdb_server_stop()` to join workers and free it.
 
 A UI pairs by invoking the same `pair` protocol as `xdb pair --wifi`, displaying its
 PIN event. The server handles the cryptography, reconnect verification and storage.

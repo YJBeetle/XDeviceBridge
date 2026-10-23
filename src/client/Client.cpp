@@ -1,13 +1,17 @@
 // SPDX-License-Identifier: LGPL-3.0-only
+#include "Process.h"
 #include "ipc/Json.h"
 #include "ipc/Wire.h"
 #include "xdb/xdb.h"
 #include <atomic>
 #include <charconv>
+#include <chrono>
+#include <filesystem>
 #include <cstdlib>
 #include <memory>
 #include <mutex>
 #include <nlohmann/json.hpp>
+#include <thread>
 using Json = nlohmann::json;
 struct xdb_response {
     xdb::ipc::Message message;
@@ -21,43 +25,134 @@ struct xdb_client {
 };
 namespace {
 thread_local std::string diagnostic;
+std::mutex startup_mutex;
+bool resolve_port(uint16_t &port) {
+    if (port)
+        return true;
+    port = 17423;
+    if (const char *value = std::getenv("XDB_PORT"); value && *value) {
+        unsigned parsed = 0;
+        auto end = value + std::char_traits<char>::length(value);
+        auto result = std::from_chars(value, end, parsed);
+        if (result.ec != std::errc{} || result.ptr != end || !parsed || parsed > 65535) {
+            diagnostic = "Invalid XDB_PORT";
+            return false;
+        }
+        port = static_cast<uint16_t>(parsed);
+    }
+    return true;
 }
+std::unique_ptr<xdb_client> connect_existing(uint16_t port, bool &not_running) {
+    auto client = std::make_unique<xdb_client>();
+    client->socket = xdb::ipc::connect(port, diagnostic, &not_running);
+    if (!client->socket.valid())
+        return nullptr;
+    client->socket.set_read_timeout(5000, diagnostic);
+    xdb_response *raw = nullptr;
+    if (!xdb_client_request(client.get(), "hello", "{\"protocol\":1}", &raw))
+        return nullptr;
+    std::unique_ptr<xdb_response> response(raw);
+    auto value = xdb::ipc::parse_json(response->message.json);
+    if (!value.value("ok", false) || value.value("result", Json::object()).value("protocol", 0) != 1) {
+        diagnostic = "xdb handshake rejected";
+        return nullptr;
+    }
+    client->socket.set_read_timeout(0, diagnostic);
+    return client;
+}
+std::unique_ptr<xdb_client> connect_or_start(uint16_t port, const char *directory) {
+    bool not_running = false;
+    auto client = connect_existing(port, not_running);
+    if (client || !not_running)
+        return client;
+    std::lock_guard lock(startup_mutex);
+    client = connect_existing(port, not_running);
+    if (client || !not_running)
+        return client;
+    if (!xdb::client::launch_server(port, directory, diagnostic))
+        return nullptr;
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    do {
+        client = connect_existing(port, not_running);
+        if (client || !not_running)
+            return client;
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    } while (std::chrono::steady_clock::now() < deadline);
+    diagnostic = "Timed out waiting for xdb server on port " + std::to_string(port);
+    return nullptr;
+}
+} // namespace
 extern "C" {
 const char *xdb_last_error() { return diagnostic.c_str(); }
-xdb_client *xdb_client_connect(uint16_t port, xdb_event_callback event, void *userdata) {
+int xdb_client_start_server(uint16_t port, const char *directory) {
     diagnostic.clear();
     try {
-        if (!port) {
-            port = 17423;
-            if (const char *value = std::getenv("XDB_PORT"); value && *value) {
-                unsigned parsed = 0;
-                auto end = value + std::char_traits<char>::length(value);
-                auto result = std::from_chars(value, end, parsed);
-                if (result.ec != std::errc{} || result.ptr != end || !parsed || parsed > 65535) {
-                    diagnostic = "Invalid XDB_PORT";
-                    return nullptr;
-                }
-                port = static_cast<uint16_t>(parsed);
+        if (!resolve_port(port))
+            return 0;
+        if (directory && *directory) {
+            std::string text(directory);
+            if (!std::filesystem::path(std::u8string(text.begin(), text.end())).is_absolute()) {
+                diagnostic = "Server data directory must be absolute";
+                return 0;
             }
         }
-        auto client = std::make_unique<xdb_client>();
-        client->socket = xdb::ipc::connect(port, diagnostic);
-        if (!client->socket.valid())
-            return nullptr;
+        return connect_or_start(port, directory) != nullptr;
+    } catch (const std::exception &e) {
+        diagnostic = e.what();
+        return 0;
+    }
+}
+int xdb_client_kill_server(uint16_t port) {
+    diagnostic.clear();
+    try {
+        if (!resolve_port(port))
+            return 0;
+        bool not_running = false;
+        auto client = connect_existing(port, not_running);
+        if (!client) {
+            if (not_running)
+                diagnostic.clear();
+            return not_running;
+        }
         client->socket.set_read_timeout(5000, diagnostic);
-        client->event = event;
-        client->userdata = userdata;
         xdb_response *raw = nullptr;
-        auto params = Json{{"protocol", 1}}.dump();
-        if (!xdb_client_request(client.get(), "hello", params.c_str(), &raw))
-            return nullptr;
+        if (!xdb_client_request(client.get(), "server.stop", "{}", &raw))
+            return 0;
         std::unique_ptr<xdb_response> response(raw);
         auto value = xdb::ipc::parse_json(response->message.json);
         if (!value.value("ok", false)) {
-            diagnostic = "xdb handshake rejected";
-            return nullptr;
+            diagnostic = value.value("error", Json::object()).value("message", std::string("Server stop rejected"));
+            return 0;
         }
-        client->socket.set_read_timeout(0, diagnostic);
+        client.reset();
+        // Wait until the listener is closed, so an immediate restart can reuse the port.
+        auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        do {
+            std::string error;
+            auto probe = xdb::ipc::connect(port, error, &not_running);
+            if (not_running) {
+                diagnostic.clear();
+                return 1;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        } while (std::chrono::steady_clock::now() < deadline);
+        diagnostic = "Timed out stopping xdb server";
+        return 0;
+    } catch (const std::exception &e) {
+        diagnostic = e.what();
+        return 0;
+    }
+}
+xdb_client *xdb_client_connect(uint16_t port, xdb_event_callback event, void *userdata) {
+    diagnostic.clear();
+    try {
+        if (!resolve_port(port))
+            return nullptr;
+        auto client = connect_or_start(port, nullptr);
+        if (!client)
+            return nullptr;
+        client->event = event;
+        client->userdata = userdata;
         return client.release();
     } catch (const std::exception &e) {
         diagnostic = e.what();

@@ -64,15 +64,12 @@ The C ABI is in [xdb.h](include/xdb/xdb.h); the wire protocol is documented in
 
 ## Command-line use
 
-The initial version uses an explicit foreground server. Automatic `start-server`
-and background process supervision are not implemented yet. Default port: 17423.
-The server listens only on loopback; local clients do not need an access token.
+Desktop CLI and SDK clients automatically start a background server when needed.
+The server remains running after the client exits and is reused by other clients.
+It listens only on loopback (default port 17423); local clients need no access token.
 
 ```sh
-# Terminal 1. --data-dir is optional; defaults to the platform user data directory.
-xdb server --port 17423
-
-# Terminal 2.
+# Starts the background server automatically.
 xdb devices -l
 xdb pair --wifi
 # Select the advertised computer in the phone's Developer Mode pairing page.
@@ -81,6 +78,20 @@ xdb pair --usb
 xdb -s '<UDID>' ddi prepare --wifi
 xdb -s '<UDID>' screenshot screen.png --wifi
 ```
+
+Use `xdb start-server` to start or reuse the background server explicitly and
+`xdb kill-server` to stop it, cancelling its sessions. Killing an absent server
+succeeds without starting one. `xdb server` remains available for foreground
+diagnostics. `--data-dir /absolute/path` selects a store when starting a new
+server; it never changes a running server's store. The default is the platform
+user data directory. `start-server` / `kill-server` require a fixed port;
+`server --port 0` can select an ephemeral port for diagnostics.
+
+Desktop SDK startup locates `xdb` beside the client library, in the sibling
+`bin` directory, or on `PATH`. `XDB_EXECUTABLE` can override this with an explicit
+executable path (useful for separate development build trees). No server backend
+is loaded into the client process. Android Apps continue to start an embedded
+server themselves.
 
 `--wifi` without an address discovers paired devices; `--wifi ADDRESS` selects a
 RemotePairing address explicitly. Without `--wifi`, device operations use USB.

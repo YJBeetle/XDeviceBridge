@@ -8,6 +8,7 @@
 #include <thread>
 #ifndef _WIN32
 #include <arpa/inet.h>
+#include <unistd.h>
 #endif
 namespace {
 thread_local std::string diagnostic;
@@ -15,6 +16,14 @@ struct Worker {
     xdb::transport::Socket socket;
     std::jthread thread;
     std::atomic<bool> done{false};
+    void interrupt() {
+#ifdef _WIN32
+        // Stop discards in-flight calls; avoid lingering connections blocking a new listener.
+        linger abort{1, 0};
+        setsockopt(socket.fd(), SOL_SOCKET, SO_LINGER, reinterpret_cast<const char *>(&abort), sizeof(abort));
+#endif
+        socket.interrupt();
+    }
 };
 } // namespace
 struct xdb_server {
@@ -104,12 +113,18 @@ void xdb_server::run_client(Worker &worker) noexcept {
                     disconnected = true;
             };
             server::Reply result;
+            const bool stop_requested = request["method"] == "server.stop";
             try {
                 auto method = request["method"].get<std::string>();
                 if (method == "server.info")
                     result.result = {
-                        {"protocol", 1}, {"version", "0.1.0"}, {"device_transport", "usb-or-wifi"}};
-                else
+                        {"protocol", 1}, {"version", "0.1.0"}, {"device_transport", "usb-or-wifi"},
+#ifdef _WIN32
+                        {"pid", GetCurrentProcessId()}};
+#else
+                        {"pid", getpid()}};
+#endif
+                else if (!stop_requested)
                     result =
                         backend.handle(method, request.value("params", Json::object()), event, cancelled);
             } catch (const std::exception &e) {
@@ -124,7 +139,17 @@ void xdb_server::run_client(Worker &worker) noexcept {
                 reply["result"] = std::move(result.result);
             else
                 reply["error"] = {{"code", result.code}, {"message", result.error}};
-            if (!ipc::write(worker.socket, {reply.dump(), std::move(result.binary)}, error))
+            auto written = ipc::write(worker.socket, {reply.dump(), std::move(result.binary)}, error);
+            if (stop_requested) {
+#ifdef _WIN32
+                // Let the requester receive the reply and close before aborting the other clients.
+                worker.socket.set_read_timeout(1000, error);
+                char ignored;
+                worker.socket.read_exact(&ignored, 1, error);
+#endif
+                stopping = true;
+            }
+            if (!written)
                 break;
         }
     } catch (...) { /* A malformed client must not terminate the server. */
@@ -149,13 +174,16 @@ void xdb_server::accept_loop() {
         worker->thread = std::jthread([this, raw] { run_client(*raw); });
         workers.push_back(std::move(worker));
     }
+    listener.close();
+    for (auto &worker : workers)
+        worker->interrupt();
 }
 xdb_server::~xdb_server() {
     stopping = true;
     if (accept_thread.joinable())
         accept_thread.join();
     for (auto &worker : workers)
-        worker->socket.interrupt();
+        worker->interrupt();
     for (auto &worker : workers)
         if (worker->thread.joinable())
             worker->thread.join();
@@ -165,7 +193,8 @@ const char *xdb_server_last_error() { return diagnostic.c_str(); }
 xdb_server *xdb_server_start(uint16_t port, const char *directory) {
     diagnostic.clear();
     try {
-        if (!directory || !std::filesystem::u8path(directory).is_absolute()) {
+        const std::string text = directory ? directory : "";
+        if (!std::filesystem::path(std::u8string(text.begin(), text.end())).is_absolute()) {
             diagnostic = "Server data directory must be absolute";
             return nullptr;
         }
@@ -175,6 +204,17 @@ xdb_server *xdb_server_start(uint16_t port, const char *directory) {
             return nullptr;
         server->listener = xdb::transport::Socket(::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP));
         if (!server->listener.valid()) {
+            diagnostic = xdb::transport::socket_error_message();
+            return nullptr;
+        }
+        int enabled = 1;
+#ifdef _WIN32
+        const int option = SO_EXCLUSIVEADDRUSE;
+#else
+        const int option = SO_REUSEADDR;
+#endif
+        if (::setsockopt(server->listener.fd(), SOL_SOCKET, option,
+                         reinterpret_cast<const char *>(&enabled), sizeof(enabled)) != 0) {
             diagnostic = xdb::transport::socket_error_message();
             return nullptr;
         }
@@ -205,5 +245,6 @@ xdb_server *xdb_server_start(uint16_t port, const char *directory) {
     }
 }
 uint16_t xdb_server_port(const xdb_server *server) { return server ? server->port : 0; }
+int xdb_server_is_running(const xdb_server *server) { return server && !server->stopping; }
 void xdb_server_stop(xdb_server *server) { delete server; }
 }

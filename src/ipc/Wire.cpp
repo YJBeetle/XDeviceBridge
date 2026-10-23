@@ -51,7 +51,9 @@ bool write(transport::Socket &socket, const Message &message, std::string &error
            socket.write_all(message.json.data(), message.json.size(), error) &&
            (message.binary.empty() || socket.write_all(message.binary.data(), message.binary.size(), error));
 }
-transport::Socket connect(uint16_t port, std::string &error) {
+transport::Socket connect(uint16_t port, std::string &error, bool *not_running) {
+    if (not_running)
+        *not_running = false;
     if (!transport::initialize_sockets(error))
         return {};
     transport::Socket socket(::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP));
@@ -64,7 +66,15 @@ transport::Socket connect(uint16_t port, std::string &error) {
     addr.sin_port = htons(port);
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     if (::connect(socket.fd(), reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) != 0) {
-        error = transport::socket_error_message();
+        auto code = transport::socket_error();
+        error = transport::socket_error_message(code);
+        if (not_running) {
+#ifdef _WIN32
+            *not_running = code == WSAECONNREFUSED;
+#else
+            *not_running = code == ECONNREFUSED;
+#endif
+        }
         return {};
     }
     return socket;

@@ -18,6 +18,7 @@ server.xdb_server_start.argtypes = [C.c_uint16,C.c_char_p]
 server.xdb_server_start.restype = C.c_void_p
 server.xdb_server_port.argtypes = [C.c_void_p]
 server.xdb_server_port.restype = C.c_uint16
+server.xdb_server_is_running.argtypes = [C.c_void_p]
 server.xdb_server_stop.argtypes = [C.c_void_p]
 server.xdb_server_last_error.restype = C.c_char_p
 client.xdb_client_connect.argtypes = [C.c_uint16,C.c_void_p,C.c_void_p]
@@ -28,6 +29,7 @@ client.xdb_response_json.argtypes = [C.c_void_p]
 client.xdb_response_json.restype = C.c_char_p
 client.xdb_response_destroy.argtypes = [C.c_void_p]
 client.xdb_last_error.restype = C.c_char_p
+client.xdb_client_kill_server.argtypes = [C.c_uint16]
 
 def packet(value, binary=b''):
     text=json.dumps(value).encode()
@@ -74,6 +76,7 @@ with tempfile.TemporaryDirectory(prefix='xdb-ipc-') as tmp:
     assert handle, server.xdb_server_last_error()
     port=server.xdb_server_port(handle)
     assert port
+    assert server.xdb_server_is_running(handle)
     try:
         c=client.xdb_client_connect(port,None,None)
         assert c, client.xdb_last_error()
@@ -122,6 +125,13 @@ with tempfile.TemporaryDirectory(prefix='xdb-ipc-') as tmp:
         assert time.monotonic()-before<3, 'idle-client shutdown blocked'
     assert idle.recv(1)==b''
     idle.close()
+    embedded=server.xdb_server_start(0,data)
+    assert embedded
+    try:
+        assert client.xdb_client_kill_server(server.xdb_server_port(embedded)), client.xdb_last_error()
+        assert not server.xdb_server_is_running(embedded)
+    finally:
+        server.xdb_server_stop(embedded)
     process=subprocess.Popen([str(exe.resolve()),'server','--port','0','--data-dir',data.decode()],
                              text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     try:

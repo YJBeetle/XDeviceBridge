@@ -46,3 +46,9 @@ audio listening, fresh pairing, DDI installation or Android device runtime.
 Pairing label changes additionally pass the host metadata/serial, pairing workflow
 and IPC tests; Android arm64 server recompilation succeeds. These do not assert
 that an already paired iPhone updates its cached display labels.
+
+Desktop lifecycle tests exercise real background processes on macOS: CLI and SDK
+automatic startup, persistence after client exit, idempotent start/kill, concurrent
+first starts, immediate restart, and refusal to replace a non-xdb listener. The
+Windows process launcher is cross-compiled, and the Android client is rebuilt
+with process startup disabled; these are not Windows/Android runtime acceptance.

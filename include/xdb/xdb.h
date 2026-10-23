@@ -34,8 +34,15 @@ XDB_CLIENT_API const char *xdb_last_error(void);
 XDB_SERVER_API const char *xdb_server_last_error(void);
 XDB_SERVER_API xdb_server *xdb_server_start(uint16_t port, const char *data_directory);
 XDB_SERVER_API uint16_t xdb_server_port(const xdb_server *server);
+// A remote kill request stops listening and interrupts clients. The owner still calls stop().
+XDB_SERVER_API int xdb_server_is_running(const xdb_server *server);
 XDB_SERVER_API void xdb_server_stop(xdb_server *server);
-// Client library never launches a process or loads the device backend.
+// Desktop: ensure a background server exists. Optional data_directory must be absolute.
+// Existing servers are reused without changing their directory. Android requires an embedded server.
+XDB_CLIENT_API int xdb_client_start_server(uint16_t port, const char *data_directory);
+// Idempotent; never starts a missing server. Cancels all current server sessions.
+XDB_CLIENT_API int xdb_client_kill_server(uint16_t port);
+// Desktop connections automatically start a missing server; Android connects to the App's server.
 // Port 0 uses XDB_PORT or 17423.
 XDB_CLIENT_API xdb_client *xdb_client_connect(uint16_t port, xdb_event_callback event, void *userdata);
 // One outstanding request per client. Response owns JSON and any binary payload.

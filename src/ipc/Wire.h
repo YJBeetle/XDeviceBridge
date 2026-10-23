@@ -14,5 +14,5 @@ struct Message {
 };
 bool read(transport::Socket &socket, Message &out, std::string &error);
 bool write(transport::Socket &socket, const Message &message, std::string &error);
-transport::Socket connect(uint16_t port, std::string &error);
+transport::Socket connect(uint16_t port, std::string &error, bool *not_running = nullptr);
 } // namespace xdb::ipc

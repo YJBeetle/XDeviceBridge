@@ -51,6 +51,8 @@ int number(const std::string &value, int minimum, int maximum) {
 }
 void help() {
     std::cout << "XDeviceBridge 0.1.0\n"
+                 "xdb start-server [--data-dir DIR] [--port PORT]\n"
+                 "xdb kill-server [--port PORT]\n"
                  "xdb server [--data-dir DIR] [--port PORT]\n"
                  "xdb devices [-l] [--usb|--wifi] [--timeout MS]\n"
                  "xdb [-s UDID] pair [--wifi|--usb] [--timeout MS]\n"
@@ -61,8 +63,8 @@ void help() {
                  "xdb rpc-shell\n"
                  "Client options: --port PORT (or XDB_PORT).\n"
                  "Server listens on loopback only. Default port: 17423. --port 0 selects a free port.\n"
-                 "A foreground server prints its listening port. Automatic startup is not "
-                 "implemented yet.\n"
+                 "Desktop clients automatically start a background server when needed.\n"
+                 "Use server to run in the foreground for diagnostics.\n"
                  "rpc-shell is a JSON debugging console, not an iOS command shell.\n";
 }
 } // namespace
@@ -141,9 +143,26 @@ int main(int argc, char **argv) {
                               {"port", xdb_server_port(server)}}
                              .dump()
                       << std::endl;
-            while (!stopping)
+            while (!stopping && xdb_server_is_running(server))
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
             return 0;
+        }
+        if (args[0] == "start-server" || args[0] == "kill-server") {
+            if (args.size() != 1 || !port)
+                throw std::invalid_argument("Server lifecycle commands require a fixed port and no extra arguments");
+            auto ok = args[0] == "start-server"
+                          ? xdb_client_start_server(port, dir.empty() ? nullptr : dir.c_str())
+                          : xdb_client_kill_server(port);
+            if (!ok)
+                std::cerr << xdb_last_error() << '\n';
+            return ok ? 0 : 1;
+        }
+        if (args[0] != "devices" && args[0] != "pair" && args[0] != "ddi" && args[0] != "screenshot" &&
+            args[0] != "pairing" && args[0] != "rpc" && args[0] != "rpc-shell")
+            throw std::invalid_argument("Unknown command; run xdb --help");
+        if (!dir.empty() && !xdb_client_start_server(port, dir.c_str())) {
+            std::cerr << xdb_last_error() << '\n';
+            return 1;
         }
         std::unique_ptr<xdb_client, decltype(&xdb_client_destroy)> client(
             xdb_client_connect(port, event, nullptr), xdb_client_destroy);

@@ -51,7 +51,8 @@ before destroying that client. Event callbacks cannot reenter or destroy their c
 
 | Method | Parameters | Result / binary |
 | --- | --- | --- |
-| `server.info` | none | Protocol and server version |
+| `server.info` | none | Protocol, server version and process ID |
+| `server.stop` | none | Requests shutdown after replying; all sessions are cancelled |
 | `devices` | `transport`: auto/usb/wifi; `timeout_ms`: 0..60000 | Devices, candidates, warnings |
 | `pair` | `transport`: wifi/usb; optional `udid`; `timeout_ms`: 1..300000 | UDID and reused status; progress/PIN events |
 | `pairing.import` | `record`: bounded xdb or scrctl pairing text | Validated/imported UDID; keys remain in server |
@@ -126,8 +127,11 @@ only detaches the requesting client; it does not invalidate another attachment.
 
 `devices` includes `capabilities.video_decode`; clients should derive Stream
 availability from the server, not their local libraries. In the C API, port 0
-uses `XDB_PORT` or 17423. No process is started
-implicitly. `include/xdb/client.hpp` is an optional header-only C++ adapter; the
+uses `XDB_PORT` or 17423. Desktop connections start a missing server automatically;
+Android connections require an App-owned embedded server.
+`xdb_client_start_server` explicitly ensures a server is running, while
+`xdb_client_kill_server` stops an existing server without starting one.
+`include/xdb/client.hpp` is an optional header-only C++ adapter; the
 binary boundary remains the C API. GUI clients can use that API directly for
 `pair` / `ddi.prepare`; device credentials never leave the server.
 
