@@ -22,7 +22,7 @@ export PATH="$HOME/.local/bin:$PATH"  # 如果该目录尚未加入 PATH
 xdb devices -l
 ```
 
-安装脚本会把运行文件复制到 `~/.local/opt/xdb`，并创建 `~/.local/bin/xdb` 符号链接。
+安装脚本会先验证并暂存新运行包，再安装到 `~/.local/opt/xdb`，并创建 `~/.local/bin/xdb` 符号链接。
 不需要管理员权限，也不会修改 shell 配置文件。如有需要，请自行把上述 PATH 设置
 加入 shell 配置，以便新终端继续使用。
 
@@ -33,8 +33,8 @@ xdb devices -l
 ```
 
 macOS 包面向 macOS 13.3 或更新系统，CPU 架构需与运行包一致。
-产物使用本地临时签名（ad hoc），尚未经过 Apple 公证；从 GitHub 下载后，
-系统可能要求在“隐私与安全性”中允许运行。
+普通 `packages` CI 产物使用 ad hoc 签名；单独标注 `notarized` 的运行 ZIP 使用
+Developer ID 签名并通过 Apple 公证。裸 CLI ZIP 的公证票据通过联网查询，不支持 staple。
 
 Linux 包在 Ubuntu 24.04 上构建，需要兼容的 glibc/libstdc++ 运行库和系统 zlib，
 并非适用于所有 Linux 发行版的通用二进制。Linux USB 访问还需要 usbmuxd。
@@ -65,9 +65,18 @@ export XDB_EXECUTABLE="$HOME/.local/opt/xdb/bin/xdb"
 并保留依赖许可证。Android 使用 [Android 集成说明](ANDROID.md)中的内嵌 Server
 方式，桌面安装包不是 Android 应用安装包。
 
-更新正在运行的 Server 前，先执行 `xdb kill-server`，替换安装的运行文件，
-再执行任意需要 Server 的命令即可启动新版本。安装和替换运行包不会删除用户数据目录中
-的配对记录或 DDI 缓存。
+更新由 install.sh 管理的安装时，直接在新包中执行同样的安装命令即可：脚本先在同一
+文件系统暂存新目录并运行 `--help`，再调用旧安装的 `kill-server`，整体替换目录，
+清除旧包遗留文件；切换失败会恢复旧目录。停止服务失败时安装不变，并提示使用原版
+xdb 停止。脚本拒绝覆盖其他命令或非自身管理的目录，也不会更改 shell 配置。
+更新会断开正在使用该服务的客户端，请先结束任务。`XDB_PORT` 可指定需停止的服务端口；
+其他端口的服务需分别停止。新版本在下次客户端连接时启动，失败回滚后也需重新连接。
+安装不会删除用户数据目录中的配对记录或 DDI 缓存。
+
+手动安装或 Windows 更新：先用原安装的 `xdb kill-server` 停止服务，保留完整旧目录，
+将新包解压到新的空目录，运行 `bin/xdb --help` 后更新 PATH / `XDB_EXECUTABLE`。
+启动失败时恢复旧路径。不在已加载的 DLL 上原地覆盖。协议不兼容时客户端会拒绝连接，
+不会自动杀死旧服务；具体兼容约定见 [PROTOCOL.md](PROTOCOL.md)。
 
 卸载用户目录中的运行包时，先停止 Server，再删除 `~/.local/bin/xdb` 符号链接
 和 `~/.local/opt/xdb` 安装目录。

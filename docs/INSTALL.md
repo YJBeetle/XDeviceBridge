@@ -101,3 +101,24 @@ Runtime and source archives are separate. Source materials include the exact
 repository commit, fetched dependency source trees, upstream source archives,
 configure/build metadata and hashes. Build caches and absolute-path provenance
 stay exclusively in the source archive.
+
+### Upgrade behavior
+
+The Unix installer stages the complete new package on the installation filesystem,
+checks `xdb --help`, stops the old service with its original executable, then replaces
+its managed directory. Stale libraries are removed; activation failure restores the
+previous directory. Unmanaged directories and unrelated commands are never overwritten.
+End active tasks before upgrading; stopping the service disconnects its clients.
+`XDB_PORT` selects the service port; stop servers on other ports separately.
+The next connection starts the installed version, including after a rollback.
+Pairing records and DDI cache remain in the separate user data directory.
+
+For manual/Windows installations, stop the service with the old `xdb kill-server`,
+keep the old directory, extract into a new empty directory, check `bin/xdb --help`,
+and update PATH / XDB_EXECUTABLE. Roll back those paths on startup failure. Do not
+replace loaded DLLs in place. Incompatible listeners are rejected, never automatically
+killed. See [protocol version policy](PROTOCOL.md#version-and-upgrade-policy).
+
+Ordinary packages CI builds are ad hoc signed. Separately labelled `notarized`
+macOS ZIPs are Developer ID signed and Apple Accepted; tickets are queried online
+because a bare CLI ZIP cannot be stapled.
