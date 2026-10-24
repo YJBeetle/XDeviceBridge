@@ -64,7 +64,6 @@ public:
         /// 此字段只提供 offer 内容，type、options、接收端口等仍由 Request 的其他字段构造。
         /// 调用方负责选择与 audio 请求类型相符的样本。
         /// 发送 RTCP 应使用本次 answer 的 SSRC，不能使用普通构造路径另外生成的身份。
-        /// 当前格式验证见 [BPLIST_COMPATIBILITY](../../docs/BPLIST_COMPATIBILITY.md#真机对照)。
         std::vector<uint8_t> raw_offer;
     };
 

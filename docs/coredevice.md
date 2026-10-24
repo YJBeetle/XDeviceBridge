@@ -12,7 +12,7 @@
 
 > **阅读提示（当前实现，2026-10-07）**：本文保留了按时间推进的实验和排错假设，原始读数不等于当前产品策略。
 > 媒体会话的当前依据是 [UDP 修复后的反馈对照](#udp-修复后的反馈对照)：已测设备可用 RR 续期，PLI 可请求关键帧；产品不发送 FIR。
-> 起流 offer 已改用 XML plist，格式对照与设备范围见 [BPLIST_COMPATIBILITY](BPLIST_COMPATIBILITY.md#当前结论)。
+> 起流 offer 已改用 XML plist；不能据此推断其他 CoreDevice feature 也接受 XML。
 > 后文标为历史记录的固定倒计时、无 RTCP 保活和定时接续方案，保留用于说明当时的推理过程。
 
 ---
@@ -814,8 +814,7 @@ actionIdentifier = com.apple.coredevice.action.mediastreamstart
 ```
 
 > **offer 格式更新**：上框的 bplist 是该次 Apple 抓包的实际格式，不是设备只接受 binary plist 的协议声明。
-> 当前生产请求仍将 offer 放入 XPC Data，但内容使用 XML；视频、音频与生产恢复对照见
-> [BPLIST_COMPATIBILITY 的真机对照](BPLIST_COMPATIBILITY.md#真机对照)，结论仅覆盖所列设备、系统与请求。
+> 当前生产请求仍将 offer 放入 XPC Data，但内容使用 XML；该选择不表示所有设备、系统或 CoreDevice 请求均已验证。
 
 另外几条从抓包里读到的事实：先起音频再起视频、两条共用一个 `ClientSessionID`、
 **但每条各有自己的 `sessionEventChannel`**（所以它是按流给的）；`startmediastream` 整场只发了

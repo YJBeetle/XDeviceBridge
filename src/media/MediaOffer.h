@@ -12,8 +12,7 @@ namespace xdb::media {
 /// RemoteEndpointInfo 的 Data 直接包含主机信息 protobuf，不经 zlib 压缩。
 /// protobuf 字段号和取值来自可用会话的观测；未确认含义的参数保留观测值。
 /// 修改参数时需分别验证协商回复、实际码流和恢复行为，不能仅以 RPC 成功判断兼容性。
-/// 字段与码流记录见 [CoreDevice §11](../../docs/coredevice.md#11-屏幕视频流的线上细节实测iphone-144--ios-270--usb)，
-/// XML 的验证范围见 [BPLIST_COMPATIBILITY](../../docs/BPLIST_COMPATIBILITY.md#当前结论)。
+/// 字段与码流记录见 [CoreDevice §11](../../docs/coredevice.md#11-屏幕视频流的线上细节实测iphone-144--ios-270--usb)。
 struct Offer {
     /// 本条流声明的客户端 SSRC：视频放在 VideoSettings.f1，音频放在媒体参数的 f3.f1。
     /// 字段名中的 session 为历史命名。已测设备将该值原样回显为 answer 的 RemoteSSRC；
@@ -78,8 +77,7 @@ struct Offer {
 
 /// 将以上参数序列化为 XML plist，供 startmediastream 的 negotiatorOffer 使用 XPC Data 携带。
 /// 两个 Data 字段在 XML 中使用 Base64；压缩媒体参数和 endpoint protobuf 的内容不变。
-/// 视频、音频与生产路径对照见 [BPLIST_COMPATIBILITY 的真机对照](../../docs/BPLIST_COMPATIBILITY.md#真机对照)。
-/// 该结果限定于文档所列设备、系统与请求，不表示其他 CoreDevice feature 都接受 XML。
+/// 当前媒体请求使用 XML；不表示其他 CoreDevice feature 都接受 XML。
 [[nodiscard]] std::vector<uint8_t> build_negotiator_offer(const Offer &offer);
 
 }  // namespace xdb::media

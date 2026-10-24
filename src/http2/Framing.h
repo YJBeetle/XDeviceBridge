@@ -10,8 +10,7 @@
 /// 客户端建立流时发送空 HEADERS + END_HEADERS，路由由流号决定：
 /// 1 为主通道、3 为回信通道，XPC 消息放在 DATA 帧。当前适配不消费入站 header block。
 ///
-/// nghttp2 使用 MIT 许可，已完成适配验证。控制流可用，偶数文件流与其客户端
-/// 会话模型不兼容，因此生产保留该帧层。验证范围见 docs/NGHTTP2_COMPATIBILITY.md。
+/// 此帧层处理 RemoteXPC 控制通道及偶数编号文件流，不提供通用 HTTP/2 客户端语义。
 namespace xdb::http2 {
 
 inline constexpr std::size_t kFrameHeaderSize = 9;
