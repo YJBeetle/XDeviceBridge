@@ -80,8 +80,9 @@ Android arm64 client/server builds are cross-compilation checks, not application
 or physical-device acceptance. They use Android API 24 and target-built dependencies.
 No new successful physical-device behavior is implied by the scrctl source origin.
 
-Before a stable release: complete physical-device acceptance for fresh pairing,
-DDI installation and Android application packaging/lifecycle.
+Before a stable release: complete physical-device acceptance for fresh pairing
+and Android application packaging/lifecycle. DDI replacement below covers one
+iOS 27 device; older image categories still need their own device acceptance.
 Existing-DDI reuse, USB input, video-only recording, desktop distribution and
 consumer capture evidence are recorded below.
 
@@ -215,3 +216,26 @@ and CLI ticket verification, not an App-bundle Gatekeeper assessment or a minimu
 MaaFramework's dependency update `630770a6` subsequently passed both upstream PR
 [build](https://github.com/MaaXYZ/MaaFramework/actions/runs/40006341916) and
 [test](https://github.com/MaaXYZ/MaaFramework/actions/runs/40006342086) workflows.
+
+
+## DDI replacement acceptance (2026-10-24)
+
+The installed xdb runtime used existing USB trust with iPhone14,4 / iOS 27.0.1:
+
+1. Baseline screenshot succeeded, and ordinary preparation reported
+   `DDI already mounted: Personalized (no new installation)`.
+2. `ddi.download` fetched the pinned Cryptex build `27A5228h` into the platform
+   cache (`cache_hit: false`) and validated all five assets before replacement.
+3. `ddi.prepare` with `replace: true` completed the explicit uninstall/reinstall
+   path, transferred the image and Apple ticket, and reported
+   `DDI installed and verified: com.apple.MobileAsset.DDI 27.1.5228.8`.
+   The replacement phase took 5.57 seconds; this was a fresh installation result,
+   not the already-installed shortcut.
+4. A new USB session captured a valid 1125×2436 PNG after replacement. Another
+   ordinary preparation then reported the mounted-image reuse result again.
+
+The cache remains at `~/Library/Caches/xdb/ddi/cryptex-27A5228h/`. The test used
+a disposable server data directory and did not replace the saved pairing records.
+This verifies Cryptex replacement on the stated device/OS; Classic and older
+Personalized installations, other models and Android-host installation remain
+outside this acceptance result.
