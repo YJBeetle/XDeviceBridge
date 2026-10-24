@@ -29,6 +29,11 @@ client.xdb_response_json.argtypes = [C.c_void_p]
 client.xdb_response_json.restype = C.c_char_p
 client.xdb_response_destroy.argtypes = [C.c_void_p]
 client.xdb_last_error.restype = C.c_char_p
+client.xdb_client_version.restype = C.c_char_p
+client.xdb_client_server_version.argtypes = [C.c_void_p]
+client.xdb_client_server_version.restype = C.c_char_p
+assert client.xdb_client_version()
+assert client.xdb_client_server_version(None) is None
 client.xdb_client_kill_server.argtypes = [C.c_uint16]
 
 def packet(value, binary=b''):
@@ -83,6 +88,8 @@ with tempfile.TemporaryDirectory(prefix='xdb-ipc-') as tmp:
         try:
             info = request(c,'server.info')['result']
             assert info['protocol']==1 and info['version']
+            assert client.xdb_client_version().decode() == info['version']
+            assert client.xdb_client_server_version(c).decode() == info['version']
             unknown = request(c,'future.optional.method')
             assert not unknown['ok'] and unknown['error']['code']=='not_connected'
             assert request(c,'server.info',{'future_optional_field':True})['ok']

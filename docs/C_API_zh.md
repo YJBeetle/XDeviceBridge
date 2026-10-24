@@ -24,6 +24,29 @@ JSON 可表达转义字符，但仍受下游方法校验约束。
 除明确称为帧数的字段外，大小均以字节计。`size_t` 随目标架构变化，不是固定 32 位。
 使用头文件提供的平台导入／导出声明及原生 C 调用 ABI。
 
+## 版本信息
+
+`xdb.h` 包含 CMake 生成的 `xdb/version.h`，提供 `XDB_VERSION_MAJOR`、
+`XDB_VERSION_MINOR`、`XDB_VERSION_PATCH`、`XDB_VERSION_STRING` 和 `XDB_ABI_VERSION`。
+头文件版本描述编译时 SDK；动态库版本应在运行时查询。动态库的 SOVERSION 使用 ABI 主版本。
+
+### `xdb_client_version`
+
+```c
+const char *xdb_client_version(void);
+```
+
+返回当前加载的客户端库版本。字符串具有静态生命周期，无需连接 Server，也无需释放。
+
+### `xdb_client_server_version`
+
+```c
+const char *xdb_client_server_version(const xdb_client *client);
+```
+
+返回握手时 Server 上报的版本，借用到客户端销毁为止；NULL 客户端返回 NULL。
+兼容的旧 Server 若未提供版本字段，返回空字符串。版本不同本身不会拒绝协议兼容的 Server。
+
 ## 生命周期与线程
 
 1. 调用方持有返回的客户端，直到 `xdb_client_destroy`；持有每个响应，直到 `xdb_response_destroy`。

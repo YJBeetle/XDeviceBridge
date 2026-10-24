@@ -27,6 +27,33 @@ method-specific validation still applies. Sizes are bytes unless explicitly
 called frames; `size_t` follows the target architecture, not a fixed 32-bit value.
 Use the header's platform import/export declarations and native C calling ABI.
 
+## Version information
+
+`xdb.h` includes CMake-generated `xdb/version.h`, providing `XDB_VERSION_MAJOR`,
+`XDB_VERSION_MINOR`, `XDB_VERSION_PATCH`, `XDB_VERSION_STRING` and `XDB_ABI_VERSION`.
+Header versions describe the build-time SDK; query the loaded library at runtime.
+Shared-library SOVERSION follows the ABI major version.
+
+### `xdb_client_version`
+
+```c
+const char *xdb_client_version(void);
+```
+
+Returns the loaded client library version in static storage. No server connection
+or caller cleanup is required.
+
+### `xdb_client_server_version`
+
+```c
+const char *xdb_client_server_version(const xdb_client *client);
+```
+
+Returns the version advertised during hello, borrowed until client destruction.
+A NULL client returns NULL. A compatible older server omitting the optional version
+field yields an empty string. Package version differences alone do not reject a
+protocol-compatible server.
+
 ## Lifetime and threading
 
 1. The caller owns a returned client until `xdb_client_destroy` and each returned

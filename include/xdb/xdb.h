@@ -2,6 +2,7 @@
 #pragma once
 #include <stddef.h>
 #include <stdint.h>
+#include "xdb/version.h"
 #ifdef _WIN32
 #ifdef XDB_CLIENT_EXPORTS
 #define XDB_CLIENT_API __declspec(dllexport)
@@ -26,6 +27,11 @@ typedef struct xdb_response xdb_response;
 // Callbacks run synchronously within request(). Data is borrowed until return.
 // Do not reenter or destroy this client from its event callback.
 typedef void (*xdb_event_callback)(const char *json, void *userdata);
+// Library version: static storage, no server connection required.
+XDB_CLIENT_API const char *xdb_client_version(void);
+// Version advertised during hello; borrowed until client destruction. NULL for a NULL client.
+// An older compatible server without this optional field yields an empty string.
+XDB_CLIENT_API const char *xdb_client_server_version(const xdb_client *client);
 // Thread-local diagnostic, borrowed until the next API call on this thread.
 XDB_CLIENT_API const char *xdb_last_error(void);
 // Loopback only. Port 0 selects a free port. Local clients connect without authentication.

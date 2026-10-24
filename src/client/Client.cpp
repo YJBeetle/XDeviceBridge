@@ -20,6 +20,7 @@ struct xdb_client {
     xdb::transport::Socket socket;
     std::mutex mutex;
     uint64_t next_id = 1;
+    std::string server_version;
     xdb_event_callback event = nullptr;
     void *userdata = nullptr;
 };
@@ -57,6 +58,7 @@ std::unique_ptr<xdb_client> connect_existing(uint16_t port, bool &not_running) {
         diagnostic = "xdb handshake rejected: incompatible protocol; stop the existing server with its original xdb kill-server, then start the matching version";
         return nullptr;
     }
+    client->server_version = value["result"].value("version", std::string());
     client->socket.set_read_timeout(0, diagnostic);
     return client;
 }
@@ -83,6 +85,10 @@ std::unique_ptr<xdb_client> connect_or_start(uint16_t port, const char *director
 }
 } // namespace
 extern "C" {
+const char *xdb_client_version() { return XDB_VERSION_STRING; }
+const char *xdb_client_server_version(const xdb_client *client) {
+    return client ? client->server_version.c_str() : nullptr;
+}
 const char *xdb_last_error() { return diagnostic.c_str(); }
 int xdb_client_start_server(uint16_t port, const char *directory) {
     diagnostic.clear();
