@@ -62,5 +62,8 @@ class Backend {
     std::string directory_, lease_;
     std::shared_ptr<Session> session_;
     void close();
+    Reply handle_management(const std::string &, const Json &, const Event &, const Cancel &);
+    Reply handle_connection(const std::string &, const Json &, const Cancel &);
+    Reply handle_input(const std::string &, const Json &, const Cancel &, Session &);
 };
 } // namespace xdb::server

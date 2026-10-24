@@ -157,202 +157,10 @@ Reply Backend::handle(const std::string &method, const Json &p, const Event &eve
     std::string error;
     if (cancel())
         return Reply::failure("cancelled", "Request cancelled");
-    if (method == "devices") {
-        remote::DiscoveryOptions o;
-        o.pairing_directory = directory_;
-        o.should_cancel = cancel;
-        o.timeout = std::chrono::milliseconds(bounded(p, "timeout_ms", 3000, 0, 60000));
-        auto mode = p.value("transport", std::string("auto"));
-        if (mode != "usb" && mode != "wifi" && mode != "auto")
-            return Reply::failure("invalid_params", "Unknown transport");
-        o.include_usb = mode != "wifi";
-        o.include_wifi = mode != "usb";
-        auto value = remote::discover_devices(o);
-        Reply r;
-        std::set<std::string> connected;
-        std::vector<std::shared_ptr<Session>> sessions;
-        {
-            std::lock_guard lock(registry_.mutex);
-            for (const auto &[key, weak] : registry_.sessions) {
-                if (auto session = std::static_pointer_cast<Session>(weak.lock()))
-                    sessions.push_back(std::move(session));
-            }
-        }
-        for (const auto &session : sessions)
-            connected.insert(session->udid);
-        r.result = discovery_json(value, connected);
-        r.result["capabilities"] = {{"video_decode", kHaveDecoder}};
-        return r;
-    }
-    if (method == "pair") {
-        auto udid = p.value("udid", std::string());
-        auto lease = udid.empty() ? std::string("@pairing") : udid;
-        if (!registry_.acquire(lease))
-            return Reply::failure("device_busy", "Device is already in use");
-        struct Release {
-            Registry &r;
-            std::string id;
-            ~Release() { r.release(id); }
-        } release{registry_, lease};
-        auto progress = [&](std::string_view text) { event("progress", {{"message", text}}); };
-        remote::PairingResult value;
-        auto mode = p.value("transport", std::string("wifi"));
-        if (mode != "wifi" && mode != "usb")
-            return Reply::failure("invalid_params", "Choose usb or wifi pairing");
-        if (mode == "wifi") {
-            remote::WifiPairingOptions o;
-            o.udid = udid;
-            o.pairing_directory = directory_;
-            o.should_cancel = cancel;
-            o.progress = progress;
-            o.timeout_ms = bounded(p, "timeout_ms", 120000, 1, 300000);
-            o.display_pin = [&](std::string_view pin, std::string &) {
-                event("pin", {{"pin", pin}});
-                return !cancel();
-            };
-            value = remote::pair_wifi_remote(o);
-        } else {
-            remote::UsbPairingOptions o;
-            o.udid = udid;
-            o.pairing_directory = directory_;
-            o.should_cancel = cancel;
-            o.progress = progress;
-            o.timeout_ms = bounded(p, "timeout_ms", 120000, 1, 300000);
-            o.allow_repair = p.value("repair", false);
-            value = remote::pair_usb_remote(o);
-        }
-        if (!value.ok)
-            return fail(value.error);
-        Reply r;
-        r.result = {{"udid", value.udid}, {"reused", value.reused}};
-        return r;
-    }
-    if (method == "ddi.download") {
-        ddi::DownloadOptions o;
-        o.cancelled = cancel;
-        o.timeout = std::chrono::seconds(bounded(p, "timeout_seconds", 300, 1, 3600));
-        auto cache = p.value("cache_directory", std::string());
-        if (!cache.empty())
-            o.cache_root = std::filesystem::u8path(cache);
-        o.progress = [&](const std::string &file, uint64_t bytes, uint64_t total) {
-            event("progress", {{"file", file}, {"bytes", bytes}, {"total", total}});
-        };
-        ddi::DownloadTarget target;
-        target.system_version = p.at("os_version").get<std::string>();
-        target.product_type = p.value("product_type", std::string());
-        auto image = ddi::download_for_target(o, target, error);
-        if (!image)
-            return fail(error);
-        Reply r;
-        r.result = {{"build", image->build}, {"cache_hit", image->cache_hit}};
-        return r;
-    }
-    if (method == "ddi.prepare") {
-        PrepareOptions o;
-        o.serial = p.at("udid").get<std::string>();
-        o.wifi = p.value("wifi", std::string());
-        if (o.serial.empty())
-            return Reply::failure("invalid_params", "UDID is required");
-        if (!registry_.acquire(o.serial))
-            return Reply::failure("device_busy", "Close the device session before preparing DDI");
-        struct Release {
-            Registry &r;
-            std::string id;
-            ~Release() { r.release(id); }
-        } release{registry_, o.serial};
-        o.data_directory = directory_;
-        o.ddi_directory = p.value("cache_directory", std::string());
-        o.wifi_port = uint16_t(bounded(p, "port", 49152, 1, 65535));
-        o.replace_ddi = p.value("replace", false);
-        o.ddi_download_timeout = bounded(p, "download_timeout_seconds", 300, 1, 3600);
-        o.ddi_install_timeout = bounded(p, "install_timeout_seconds", 300, 1, 3600);
-        if (!prepare_ddi(o, error, event, cancel))
-            return fail(error);
-        Reply r;
-        r.result = {{"prepared", true}};
-        return r;
-    }
-    if (method == "connection.close") {
-        close();
-        return {};
-    }
-    if (method == "connection.attach") {
-        if (session_)
-            return Reply::failure("invalid_state", "This client already owns a session");
-        auto key = p.at("attachment").get<std::string>();
-        {
-            std::lock_guard lock(registry_.mutex);
-            auto found = registry_.sessions.find(key);
-            if (found != registry_.sessions.end())
-                session_ = std::static_pointer_cast<Session>(found->second.lock());
-        }
-        if (!session_)
-            return Reply::failure("invalid_session", "Session attachment is no longer available");
-        return {};
-    }
-    if (method == "connection.open") {
-        if (session_)
-            return Reply::failure("invalid_state", "This client already owns a device session");
-        auto udid = p.at("udid").get<std::string>();
-        auto mode = p.value("transport", std::string("auto"));
-        if (mode != "auto" && mode != "usb" && mode != "wifi")
-            return Reply::failure("invalid_params", "Unknown transport");
-        if (udid.empty()) {
-            remote::DiscoveryOptions o;
-            o.pairing_directory = directory_;
-            o.should_cancel = cancel;
-            o.include_wifi = mode != "usb";
-            o.include_usb = mode != "wifi";
-            auto found = remote::discover_devices(o);
-            for (const auto &d : found.devices) {
-                if (d.udid.empty())
-                    continue;
-                if (!udid.empty())
-                    return Reply::failure("ambiguous_device", "Multiple devices; select a UDID");
-                udid = d.udid;
-            }
-            if (udid.empty())
-                return Reply::failure("device_not_found", "No identified device available");
-        }
-        if (!registry_.acquire(udid))
-            return Reply::failure("device_busy", "Device is already in use");
-        lease_ = udid;
-        try {
-            auto address = p.value("wifi", std::string());
-            if (mode == "wifi" && address.empty())
-                address = "auto";
-            auto device =
-                mode == "usb"
-                    ? remote::Device::establish_bounded(
-                          udid, transport::IoBudget({std::chrono::seconds(30), cancel}), error, false, true)
-                    : open_device(udid, address, error, uint16_t(bounded(p, "port", 49152, 1, 65535)), cancel,
-                                  directory_);
-            if (!device) {
-                close();
-                return fail(error);
-            }
-            session_ = std::make_shared<Session>(registry_, std::move(*device));
-            lease_.clear(); // Session releases the device only after its last attachment closes.
-            auto key = wifi::random_bytes(32, error);
-            if (!key) {
-                close();
-                return fail(error);
-            }
-            static constexpr char hex[] = "0123456789abcdef";
-            for (auto byte : *key) {
-                session_->attachment += hex[byte >> 4];
-                session_->attachment += hex[byte & 15];
-            }
-            std::lock_guard lock(registry_.mutex);
-            registry_.sessions[session_->attachment] = session_;
-        } catch (...) {
-            close();
-            throw;
-        }
-        Reply r;
-        r.result = {{"udid", session_->device.udid()}, {"attachment", session_->attachment}};
-        return r;
-    }
+    if (method == "devices" || method == "pair" || method == "ddi.download" || method == "ddi.prepare")
+        return handle_management(method, p, event, cancel);
+    if (method == "connection.close" || method == "connection.attach" || method == "connection.open")
+        return handle_connection(method, p, cancel);
     if (!session_)
         return Reply::failure("not_connected", "Open a device session first");
     auto &s = *session_;
@@ -650,83 +458,297 @@ Reply Backend::handle(const std::string &method, const Json &p, const Event &eve
                       : remote::App::stop(s.device, bundle, error);
         return ok ? Reply{} : fail(error);
     }
-    if (method.starts_with("input.")) {
-        if (method == "input.text") {
-            auto text = p.at("text").get<std::string>();
-            if (text.size() > 4096)
-                return Reply::failure("invalid_params", "Text exceeds 4096 bytes");
-            for (unsigned char c : text)
-                if ((c < 32 && c != '\t' && c != '\n') || c > 126)
-                    return Reply::failure("unsupported", "Only US keyboard ASCII text is supported");
-            const int hold = bounded(p, "hold_ms", 0, 0, 1000);
-            const int timeout = bounded(p, "timeout_ms", 30000, 1, 300000);
-            if (s.video)
-                s.video->wake();
-            const transport::IoBudget budget({std::chrono::milliseconds(timeout), cancel});
-            std::stop_source stop;
-            transport::BudgetWatchdog watch(budget, [&] { stop.request_stop(); });
-            // A per-request endpoint lets cancellation interrupt this send without
-            // breaking another attached client's media/control service.
-            auto typing = hid::Service::open(s.device, error, false, stop.get_token());
-            const bool delivered = typing && typing->type_text(text, hold, error, stop.get_token());
-            const bool in_budget = watch.finish(error);
-            if (!in_budget || !delivered)
-                return fail(error);
-            s.hid = std::move(typing);
-            return {};
+    if (method.starts_with("input."))
+        return handle_input(method, p, cancel, s);
+    return Reply::failure("unknown_method", "Unknown method: " + method);
+}
+
+Reply Backend::handle_management(const std::string &method, const Json &p, const Event &event, const Cancel &cancel) {
+    auto fail = [](const std::string &error) { return Reply::failure("operation_failed", error); };
+    std::string error;
+    if (method == "devices") {
+        remote::DiscoveryOptions o;
+        o.pairing_directory = directory_;
+        o.should_cancel = cancel;
+        o.timeout = std::chrono::milliseconds(bounded(p, "timeout_ms", 3000, 0, 60000));
+        auto mode = p.value("transport", std::string("auto"));
+        if (mode != "usb" && mode != "wifi" && mode != "auto")
+            return Reply::failure("invalid_params", "Unknown transport");
+        o.include_usb = mode != "wifi";
+        o.include_wifi = mode != "usb";
+        auto value = remote::discover_devices(o);
+        Reply r;
+        std::set<std::string> connected;
+        std::vector<std::shared_ptr<Session>> sessions;
+        {
+            std::lock_guard lock(registry_.mutex);
+            for (const auto &[key, weak] : registry_.sessions) {
+                if (auto session = std::static_pointer_cast<Session>(weak.lock()))
+                    sessions.push_back(std::move(session));
+            }
         }
-        if (!s.hid)
-            s.hid = hid::Service::open(s.device, error);
-        if (!s.hid)
+        for (const auto &session : sessions)
+            connected.insert(session->udid);
+        r.result = discovery_json(value, connected);
+        r.result["capabilities"] = {{"video_decode", kHaveDecoder}};
+        return r;
+    }
+    if (method == "pair") {
+        auto udid = p.value("udid", std::string());
+        auto lease = udid.empty() ? std::string("@pairing") : udid;
+        if (!registry_.acquire(lease))
+            return Reply::failure("device_busy", "Device is already in use");
+        struct Release {
+            Registry &r;
+            std::string id;
+            ~Release() { r.release(id); }
+        } release{registry_, lease};
+        auto progress = [&](std::string_view text) { event("progress", {{"message", text}}); };
+        remote::PairingResult value;
+        auto mode = p.value("transport", std::string("wifi"));
+        if (mode != "wifi" && mode != "usb")
+            return Reply::failure("invalid_params", "Choose usb or wifi pairing");
+        if (mode == "wifi") {
+            remote::WifiPairingOptions o;
+            o.udid = udid;
+            o.pairing_directory = directory_;
+            o.should_cancel = cancel;
+            o.progress = progress;
+            o.timeout_ms = bounded(p, "timeout_ms", 120000, 1, 300000);
+            o.display_pin = [&](std::string_view pin, std::string &) {
+                event("pin", {{"pin", pin}});
+                return !cancel();
+            };
+            value = remote::pair_wifi_remote(o);
+        } else {
+            remote::UsbPairingOptions o;
+            o.udid = udid;
+            o.pairing_directory = directory_;
+            o.should_cancel = cancel;
+            o.progress = progress;
+            o.timeout_ms = bounded(p, "timeout_ms", 120000, 1, 300000);
+            o.allow_repair = p.value("repair", false);
+            value = remote::pair_usb_remote(o);
+        }
+        if (!value.ok)
+            return fail(value.error);
+        Reply r;
+        r.result = {{"udid", value.udid}, {"reused", value.reused}};
+        return r;
+    }
+    if (method == "ddi.download") {
+        ddi::DownloadOptions o;
+        o.cancelled = cancel;
+        o.timeout = std::chrono::seconds(bounded(p, "timeout_seconds", 300, 1, 3600));
+        auto cache = p.value("cache_directory", std::string());
+        if (!cache.empty())
+            o.cache_root = std::filesystem::u8path(cache);
+        o.progress = [&](const std::string &file, uint64_t bytes, uint64_t total) {
+            event("progress", {{"file", file}, {"bytes", bytes}, {"total", total}});
+        };
+        ddi::DownloadTarget target;
+        target.system_version = p.at("os_version").get<std::string>();
+        target.product_type = p.value("product_type", std::string());
+        auto image = ddi::download_for_target(o, target, error);
+        if (!image)
             return fail(error);
+        Reply r;
+        r.result = {{"build", image->build}, {"cache_hit", image->cache_hit}};
+        return r;
+    }
+    if (method == "ddi.prepare") {
+        PrepareOptions o;
+        o.serial = p.at("udid").get<std::string>();
+        o.wifi = p.value("wifi", std::string());
+        if (o.serial.empty())
+            return Reply::failure("invalid_params", "UDID is required");
+        if (!registry_.acquire(o.serial))
+            return Reply::failure("device_busy", "Close the device session before preparing DDI");
+        struct Release {
+            Registry &r;
+            std::string id;
+            ~Release() { r.release(id); }
+        } release{registry_, o.serial};
+        o.data_directory = directory_;
+        o.ddi_directory = p.value("cache_directory", std::string());
+        o.wifi_port = uint16_t(bounded(p, "port", 49152, 1, 65535));
+        o.replace_ddi = p.value("replace", false);
+        o.ddi_download_timeout = bounded(p, "download_timeout_seconds", 300, 1, 3600);
+        o.ddi_install_timeout = bounded(p, "install_timeout_seconds", 300, 1, 3600);
+        if (!prepare_ddi(o, error, event, cancel))
+            return fail(error);
+        Reply r;
+        r.result = {{"prepared", true}};
+        return r;
+    }
+    return Reply::failure("unknown_method", "Unknown method: " + method);
+}
+
+Reply Backend::handle_connection(const std::string &method, const Json &p, const Cancel &cancel) {
+    auto fail = [](const std::string &error) { return Reply::failure("operation_failed", error); };
+    std::string error;
+    if (method == "connection.close") {
+        close();
+        return {};
+    }
+    if (method == "connection.attach") {
+        if (session_)
+            return Reply::failure("invalid_state", "This client already owns a session");
+        auto key = p.at("attachment").get<std::string>();
+        {
+            std::lock_guard lock(registry_.mutex);
+            auto found = registry_.sessions.find(key);
+            if (found != registry_.sessions.end())
+                session_ = std::static_pointer_cast<Session>(found->second.lock());
+        }
+        if (!session_)
+            return Reply::failure("invalid_session", "Session attachment is no longer available");
+        return {};
+    }
+    if (method == "connection.open") {
+        if (session_)
+            return Reply::failure("invalid_state", "This client already owns a device session");
+        auto udid = p.at("udid").get<std::string>();
+        auto mode = p.value("transport", std::string("auto"));
+        if (mode != "auto" && mode != "usb" && mode != "wifi")
+            return Reply::failure("invalid_params", "Unknown transport");
+        if (udid.empty()) {
+            remote::DiscoveryOptions o;
+            o.pairing_directory = directory_;
+            o.should_cancel = cancel;
+            o.include_wifi = mode != "usb";
+            o.include_usb = mode != "wifi";
+            auto found = remote::discover_devices(o);
+            for (const auto &d : found.devices) {
+                if (d.udid.empty())
+                    continue;
+                if (!udid.empty())
+                    return Reply::failure("ambiguous_device", "Multiple devices; select a UDID");
+                udid = d.udid;
+            }
+            if (udid.empty())
+                return Reply::failure("device_not_found", "No identified device available");
+        }
+        if (!registry_.acquire(udid))
+            return Reply::failure("device_busy", "Device is already in use");
+        lease_ = udid;
+        try {
+            auto address = p.value("wifi", std::string());
+            if (mode == "wifi" && address.empty())
+                address = "auto";
+            auto device =
+                mode == "usb"
+                    ? remote::Device::establish_bounded(
+                          udid, transport::IoBudget({std::chrono::seconds(30), cancel}), error, false, true)
+                    : open_device(udid, address, error, uint16_t(bounded(p, "port", 49152, 1, 65535)), cancel,
+                                  directory_);
+            if (!device) {
+                close();
+                return fail(error);
+            }
+            session_ = std::make_shared<Session>(registry_, std::move(*device));
+            lease_.clear(); // Session releases the device only after its last attachment closes.
+            auto key = wifi::random_bytes(32, error);
+            if (!key) {
+                close();
+                return fail(error);
+            }
+            static constexpr char hex[] = "0123456789abcdef";
+            for (auto byte : *key) {
+                session_->attachment += hex[byte >> 4];
+                session_->attachment += hex[byte & 15];
+            }
+            std::lock_guard lock(registry_.mutex);
+            registry_.sessions[session_->attachment] = session_;
+        } catch (...) {
+            close();
+            throw;
+        }
+        Reply r;
+        r.result = {{"udid", session_->device.udid()}, {"attachment", session_->attachment}};
+        return r;
+    }
+    return Reply::failure("unknown_method", "Unknown method: " + method);
+}
+
+Reply Backend::handle_input(const std::string &method, const Json &p, const Cancel &cancel, Session &s) {
+    auto fail = [](const std::string &error) { return Reply::failure("operation_failed", error); };
+    std::string error;
+    if (method == "input.text") {
+        auto text = p.at("text").get<std::string>();
+        if (text.size() > 4096)
+            return Reply::failure("invalid_params", "Text exceeds 4096 bytes");
+        for (unsigned char c : text)
+            if ((c < 32 && c != '\t' && c != '\n') || c > 126)
+                return Reply::failure("unsupported", "Only US keyboard ASCII text is supported");
+        const int hold = bounded(p, "hold_ms", 0, 0, 1000);
+        const int timeout = bounded(p, "timeout_ms", 30000, 1, 300000);
         if (s.video)
             s.video->wake();
-        if (method == "input.touch" || method == "input.tap") {
-            auto x = p.at("x").get<double>(), y = p.at("y").get<double>();
-            if (!unit(x) || !unit(y))
-                return Reply::failure("invalid_params", "Touch coordinates must be in [0,1]");
-            s.x = x;
-            s.y = y;
-            if (method == "input.tap") {
-                s.touching = true;
-                const bool ok = s.hid->tap(x, y, bounded(p, "hold_ms", 30, 0, 2000), error);
-                if (ok)
-                    s.touching = false;
-                return ok ? Reply{} : fail(error);
-            }
-            bool down = p.at("down").get<bool>();
-            if (down)
-                s.touching = true;
-            const bool ok = s.hid->touch(hid::kSurfaceMainTouchscreen, x, y, down, error);
+        const transport::IoBudget budget({std::chrono::milliseconds(timeout), cancel});
+        std::stop_source stop;
+        transport::BudgetWatchdog watch(budget, [&] { stop.request_stop(); });
+        // A per-request endpoint lets cancellation interrupt this send without
+        // breaking another attached client's media/control service.
+        auto typing = hid::Service::open(s.device, error, false, stop.get_token());
+        const bool delivered = typing && typing->type_text(text, hold, error, stop.get_token());
+        const bool in_budget = watch.finish(error);
+        if (!in_budget || !delivered)
+            return fail(error);
+        s.hid = std::move(typing);
+        return {};
+    }
+    if (!s.hid)
+        s.hid = hid::Service::open(s.device, error);
+    if (!s.hid)
+        return fail(error);
+    if (s.video)
+        s.video->wake();
+    if (method == "input.touch" || method == "input.tap") {
+        auto x = p.at("x").get<double>(), y = p.at("y").get<double>();
+        if (!unit(x) || !unit(y))
+            return Reply::failure("invalid_params", "Touch coordinates must be in [0,1]");
+        s.x = x;
+        s.y = y;
+        if (method == "input.tap") {
+            s.touching = true;
+            const bool ok = s.hid->tap(x, y, bounded(p, "hold_ms", 30, 0, 2000), error);
             if (ok)
-                s.touching = down;
+                s.touching = false;
             return ok ? Reply{} : fail(error);
         }
-        if (method == "input.keyboard") {
-            auto usages = p.at("usages").get<std::vector<uint16_t>>();
-            for (auto key : usages)
-                if (key >= 240)
-                    return Reply::failure("invalid_params", "Keyboard usage must be below 240");
-            s.keys = {usages.begin(), usages.end()};
-            return s.hid->send_report(hid::kSurfaceKeyboard, hid::keyboard_report(usages), error)
-                       ? Reply{}
-                       : fail(error);
-        }
-        if (method == "input.button") {
-            auto page = uint16_t(bounded(p, "page", 12, 0, 65535)),
-                 code = uint16_t(bounded(p, "usage", 0, 0, 65535));
-            bool down = p.at("down").get<bool>();
-            if (!s.buttons)
-                s.buttons = hid::Buttons::open(s.device, error);
-            if (!s.buttons)
-                return fail(error);
-            if (down)
-                s.held_buttons.insert({page, code});
-            const bool ok = down ? s.buttons->down(page, code, error) : s.buttons->release(page, code, error);
-            if (ok && !down)
-                s.held_buttons.erase({page, code});
-            return ok ? Reply{} : fail(error);
-        }
+        bool down = p.at("down").get<bool>();
+        if (down)
+            s.touching = true;
+        const bool ok = s.hid->touch(hid::kSurfaceMainTouchscreen, x, y, down, error);
+        if (ok)
+            s.touching = down;
+        return ok ? Reply{} : fail(error);
+    }
+    if (method == "input.keyboard") {
+        auto usages = p.at("usages").get<std::vector<uint16_t>>();
+        for (auto key : usages)
+            if (key >= 240)
+                return Reply::failure("invalid_params", "Keyboard usage must be below 240");
+        s.keys = {usages.begin(), usages.end()};
+        return s.hid->send_report(hid::kSurfaceKeyboard, hid::keyboard_report(usages), error)
+                   ? Reply{}
+                   : fail(error);
+    }
+    if (method == "input.button") {
+        auto page = uint16_t(bounded(p, "page", 12, 0, 65535)),
+             code = uint16_t(bounded(p, "usage", 0, 0, 65535));
+        bool down = p.at("down").get<bool>();
+        if (!s.buttons)
+            s.buttons = hid::Buttons::open(s.device, error);
+        if (!s.buttons)
+            return fail(error);
+        if (down)
+            s.held_buttons.insert({page, code});
+        const bool ok = down ? s.buttons->down(page, code, error) : s.buttons->release(page, code, error);
+        if (ok && !down)
+            s.held_buttons.erase({page, code});
+        return ok ? Reply{} : fail(error);
     }
     return Reply::failure("unknown_method", "Unknown method: " + method);
 }
