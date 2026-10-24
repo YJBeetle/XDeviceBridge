@@ -119,7 +119,12 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
         run: |
+          mapfile -d '' assets < <(find packages -type f -print0 | sort -z)
+          if [ "${#assets[@]}" -eq 0 ]; then
+            echo "No release assets were downloaded" >&2
+            exit 1
+          fi
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --verify-tag --title "$TAG" --generate-notes
           fi
-          gh release upload "$TAG" packages/* --clobber
+          gh release upload "$TAG" "${assets[@]}" --clobber
