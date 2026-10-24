@@ -1,6 +1,7 @@
 #pragma once
 
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -8,6 +9,9 @@
 #include <vector>
 
 namespace xdb {
+
+/// 当前媒体接口一包一帧，输入来自单个 UDP 数据报；较大的输入不作为多帧流猜测。
+inline constexpr std::size_t kMaxEldPacketBytes = 65535;
 
 /// AAC-ELD 解码接口。输入为已去除 RTP 头的单帧裸 ELD 载荷，输出为交织的有符号
 /// 16 位 PCM。已测设备采用一包一帧，编码配置见

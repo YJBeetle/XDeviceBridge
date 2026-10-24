@@ -84,6 +84,22 @@ void test_decode(int frame_length) {
 } // namespace
 
 int main() {
+#ifdef __APPLE__
+    {
+        std::string error;
+        auto decoder = xdb::create_audio_decoder(48000,2,480,error);
+        check(decoder != nullptr,"platform AudioToolbox decoder is available");
+        if (decoder) {
+            std::vector<int16_t> pcm{123,-456};
+            const std::vector<uint8_t> oversized(xdb::kMaxEldPacketBytes+1,0);
+            check(!decoder->decode(oversized,pcm,error) && error.find("size limit") != std::string::npos &&
+                      pcm == std::vector<int16_t>({123,-456}),
+                  "AudioToolbox rejects oversized packets before conversion and preserves PCM");
+            check(decoder->decode({},pcm,error) && error.empty() && pcm == std::vector<int16_t>({123,-456}),
+                  "size rejection leaves the platform decoder usable without stale errors");
+        }
+    }
+#endif
     test_configuration();
     test_decode(480);
     test_decode(512);

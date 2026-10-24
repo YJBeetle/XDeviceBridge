@@ -8,9 +8,6 @@
 
 namespace xdb {
 
-/// 当前媒体接口一包一帧，输入来自单个 UDP 数据报；较大的输入不作为多帧流猜测。
-inline constexpr size_t kMaxEldPacketBytes = 65535;
-
 /// 独立的 FFmpeg AAC-ELD 工厂，暂不替代平台工厂，供离线及后端对照使用。
 /// 当前只接受 48000 Hz、双声道、每声道 480 或 512 采样的无 LD-SBR 配置。
 /// ASC 根据这组明确的配置生成；不是从收到的裸帧猜测编码或 SBR 开关。

@@ -70,6 +70,11 @@ public:
 
     bool decode(std::span<const uint8_t> frame, std::vector<int16_t> &pcm,
                 std::string &err) override {
+        err.clear();
+        if (frame.size() > kMaxEldPacketBytes) {
+            err = "AAC-ELD packet exceeds the single-datagram size limit";
+            return false;
+        }
         if (frame.empty()) {
             return true;
         }
