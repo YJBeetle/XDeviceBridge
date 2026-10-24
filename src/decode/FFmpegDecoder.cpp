@@ -86,20 +86,25 @@ public:
             return false;  // 未形成可提交的 Annex-B 输入
         }
 
-        AVPacket *pkt = av_packet_alloc();
+        const auto free_packet = [](AVPacket *packet) { av_packet_free(&packet); };
+        std::unique_ptr<AVPacket, decltype(free_packet)> pkt(av_packet_alloc(), free_packet);
         if (pkt == nullptr) {
             return false;
         }
         // av_new_packet 分配 packet 自有数据及 AV_INPUT_BUFFER_PADDING_SIZE 零填充，
         // 满足 libav 位读取器对输入尾部的要求。annexb 的 vector 无需保留到解码结束。
-        if (av_new_packet(pkt, static_cast<int>(annexb.size())) < 0) {
-            av_packet_free(&pkt);
+        if (av_new_packet(pkt.get(), static_cast<int>(annexb.size())) < 0) {
             return false;
         }
         std::memcpy(pkt->data, annexb.data(), annexb.size());
 
-        const int send_st = avcodec_send_packet(ctx_, pkt);
-        av_packet_free(&pkt);
+        bool produced = false;
+        int send_st = avcodec_send_packet(ctx_, pkt.get());
+        if (send_st == AVERROR(EAGAIN)) {
+            // 输出未排空时输入尚未被消费。保留原包，先取尽积压再重试一次。
+            if (!drain(out, produced)) return false;
+            send_st = avcodec_send_packet(ctx_, pkt.get());
+        }
         if (send_st < 0) {
             static std::once_flag warned;
             std::call_once(warned, [send_st] {
@@ -108,17 +113,23 @@ public:
             return false;
         }
 
-        av_frame_unref(frame_);
-        const int st = avcodec_receive_frame(ctx_, frame_);
-        if (st < 0) {
-            return false;  // 包括 EAGAIN（暂时无帧）及其他接收错误，接口均返回 false
-        }
-        return to_frame(frame_, out);
+        // 一个包可能释放多帧，全部读取并只向镜像调用方保留最新画面。
+        return drain(out, produced) && produced;
     }
 
     [[nodiscard]] const char *backend_name() const override { return "libavcodec/hevc"; }
 
 private:
+    bool drain(Frame &out, bool &produced) {
+        for (;;) {
+            av_frame_unref(frame_);
+            const int status = avcodec_receive_frame(ctx_, frame_);
+            if (status == AVERROR(EAGAIN) || status == AVERROR_EOF) return true;
+            if (status < 0 || !to_frame(frame_, out)) return false;
+            produced = true;
+        }
+    }
+
     static bool has_parameter_sets(const std::vector<Nal> &au) {
         for (const auto &n : au) {
             if (n.size() >= 2) {
