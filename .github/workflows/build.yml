@@ -14,7 +14,7 @@ jobs:
       - name: Build
         run: cmake --build build --config Release --parallel 4
       - name: Test client
-        run: ctest --test-dir build --config Release --output-on-failure
+        run: ctest --test-dir build -C Release --output-on-failure
   server:
     strategy:
       fail-fast: false
