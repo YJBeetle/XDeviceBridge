@@ -3,10 +3,6 @@
 #include <cstring>
 #include <climits>
 #include <algorithm>
-#include <atomic>
-#include <condition_variable>
-#include <mutex>
-#include <thread>
 
 namespace xdb::transport {
 namespace {
@@ -16,46 +12,6 @@ constexpr const char *kLabel = "xdb";
 
 using Clock = std::chrono::steady_clock;
 using Ms = std::chrono::milliseconds;
-class BoundedIo {
-public:
-    BoundedIo(Socket &socket, Ms timeout, const std::function<bool()> &cancelled)
-        : socket_(socket), cancelled_(cancelled), deadline_(Clock::now() + std::clamp(timeout, Ms(0), Ms(std::chrono::hours(1)))) {
-        check();
-        if (!reason_) thread_ = std::thread([this] {
-            std::unique_lock lock(mutex_);
-            while (!done_) {
-                cv_.wait_until(lock, std::min(deadline_, Clock::now() + Ms(25)), [this] { return done_; });
-                if (done_) break;
-                lock.unlock(); check(); lock.lock();
-                if (reason_) break;
-            }
-        });
-    }
-    ~BoundedIo() { stop(); }
-    bool active() const { return !reason_; }
-    bool finish(std::string &error) {
-        stop(); check();
-        if (reason_ == 1) error = "Bounded lockdown operation timed out";
-        else if (reason_ == 2) error = "Bounded lockdown operation was cancelled";
-        else if (reason_ == 3) error = "Lockdown cancellation callback failed";
-        return !reason_;
-    }
-private:
-    void check() noexcept {
-        if (reason_) return;
-        try {
-            if (cancelled_ && cancelled_()) reason_ = 2;
-            else if (Clock::now() >= deadline_) reason_ = 1;
-        } catch (...) { reason_ = 3; }
-        if (reason_) socket_.interrupt();
-    }
-    void stop() {
-        { std::lock_guard lock(mutex_); done_ = true; }
-        cv_.notify_all(); if (thread_.joinable()) thread_.join();
-    }
-    Socket &socket_; const std::function<bool()> &cancelled_; Clock::time_point deadline_;
-    std::atomic<int> reason_{0}; std::mutex mutex_; std::condition_variable cv_; bool done_ = false; std::thread thread_;
-};
 
 bool tls_exact(SSL *ssl, uint8_t *data, size_t length, bool writing) {
     size_t offset = 0;
@@ -151,9 +107,10 @@ bool Lockdown::request(const plist::Value &req, plist::Value &reply, std::string
 bool Lockdown::request_bounded(const plist::Value &req, plist::Value &reply, Ms timeout,
         const std::function<bool()> &cancelled, std::string &err) {
     err.clear();
-    BoundedIo watch(sock_, timeout, cancelled);
+    IoBudget operation_budget({timeout, cancelled});
+    BudgetWatchdog watch(operation_budget, [this] { sock_.interrupt(); });
     const auto ok = watch.active() && request(req, reply, err);
-    return watch.finish(err) && ok;
+    return watch.finish(err, "Bounded lockdown operation") && ok;
 }
 
 std::optional<Lockdown> Lockdown::establish_bounded(uint32_t device_id, std::string_view udid,

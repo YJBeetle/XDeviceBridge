@@ -7,6 +7,7 @@
 #include <functional>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
 
@@ -43,16 +44,18 @@ public:
         return reason_.load() != Reason::none;
     }
 
-    bool check(std::string &error) const {
+    bool check(std::string &error, std::string_view operation = "Device startup") const {
         if (!stopped()) return true;
         switch (reason_.load()) {
-        case Reason::cancelled: error = "Device startup cancelled"; break;
-        case Reason::timed_out: error = "Device startup timed out"; break;
-        case Reason::callback_failed: error = "Device startup cancellation callback failed"; break;
+        case Reason::cancelled: error = std::string(operation) + " cancelled"; break;
+        case Reason::timed_out: error = std::string(operation) + " timed out"; break;
+        case Reason::callback_failed: error = std::string(operation) + " cancellation callback failed"; break;
         case Reason::none: break;
         }
         return false;
     }
+
+    void callback_failed() const noexcept { reason_ = Reason::callback_failed; }
 
     std::chrono::milliseconds remaining() const {
         if (stopped()) return std::chrono::milliseconds(0);
@@ -73,7 +76,7 @@ class BudgetWatchdog {
 public:
     BudgetWatchdog(const IoBudget &budget, std::function<void()> interrupt)
         : budget_(budget), interrupt_(std::move(interrupt)) {
-        if (budget_.stopped()) interrupt_();
+        if (budget_.stopped()) this->interrupt();
         else worker_ = std::thread([this] {
             std::unique_lock lock(mutex_);
             while (!done_) {
@@ -82,15 +85,21 @@ public:
                 if (done_) break;
                 lock.unlock();
                 const bool stopped = budget_.stopped();
-                if (stopped) interrupt_();
+                if (stopped) this->interrupt();
                 lock.lock();
                 if (stopped) break;
             }
         });
     }
     ~BudgetWatchdog() { stop(); }
-    bool finish(std::string &error) { stop(); return budget_.check(error); }
+    bool active() const { return !budget_.stopped(); }
+    bool finish(std::string &error, std::string_view operation = "Device startup") {
+        stop(); return budget_.check(error, operation);
+    }
 private:
+    void interrupt() noexcept {
+        try { interrupt_(); } catch (...) { budget_.callback_failed(); }
+    }
     void stop() {
         { std::lock_guard lock(mutex_); done_ = true; }
         cv_.notify_all();

@@ -1,14 +1,11 @@
 #include "ddi/ServiceTransport.h"
+#include "transport/IoBudget.h"
 #include "remote/Device.h"
 #include "transport/Lockdown.h"
 #include "transport/Usbmux.h"
 #include <algorithm>
-#include <atomic>
-#include <condition_variable>
 #include <cstring>
 #include <limits>
-#include <mutex>
-#include <thread>
 
 namespace xdb::ddi {
 namespace {
@@ -25,58 +22,6 @@ Clock::time_point deadline(Ms timeout) {
 Ms remaining(Clock::time_point until) {
     return std::max(Ms(0), std::chrono::duration_cast<Ms>(until - Clock::now()));
 }
-// The watched resource remains at a fixed address. Stop/join occurs before
-// ownership transfer, reconnect, TLS release or destruction; interrupt never frees it.
-class Watchdog {
-public:
-    Watchdog(Ms timeout, const std::function<bool()> &cancelled, std::function<void()> interrupt)
-        : until_(deadline(timeout)), cancelled_(cancelled), interrupt_(std::move(interrupt)) {
-        check();
-        if (reason_.load() == None) thread_ = std::thread([this] {
-            std::unique_lock lock(mutex_);
-            while (!done_) {
-                cv_.wait_until(lock, std::min(until_, Clock::now() + Ms(25)), [this] { return done_; });
-                if (done_) break;
-                lock.unlock(); check(); lock.lock();
-                if (reason_.load() != None) break;
-            }
-        });
-    }
-    ~Watchdog() { stop(); }
-    bool active() const { return reason_.load() == None; }
-    bool finish(std::string &error) {
-        stop(); check();
-        switch (reason_.load()) {
-        case Timeout: error = "DDI service operation timed out"; return false;
-        case Cancelled: error = "DDI service operation was cancelled"; return false;
-        case Callback: error = "DDI service cancellation callback failed"; return false;
-        default: return true;
-        }
-    }
-private:
-    enum Reason { None, Timeout, Cancelled, Callback };
-    void check() noexcept {
-        if (reason_.load() != None) return;
-        Reason reason = None;
-        try {
-            if (cancelled_ && cancelled_()) reason = Cancelled;
-            else if (Clock::now() >= until_) reason = Timeout;
-        } catch (...) { reason = Callback; }
-        if (reason != None) {
-            reason_.store(reason);
-            try { interrupt_(); } catch (...) { reason_.store(Callback); }
-        }
-    }
-    void stop() {
-        { std::lock_guard lock(mutex_); done_ = true; }
-        cv_.notify_all(); if (thread_.joinable()) thread_.join();
-    }
-    Clock::time_point until_;
-    const std::function<bool()> &cancelled_;
-    std::function<void()> interrupt_;
-    std::atomic<Reason> reason_{None};
-    std::mutex mutex_; std::condition_variable cv_; bool done_ = false; std::thread thread_;
-};
 } // namespace
 
 struct ServiceTransport::Impl {
@@ -176,9 +121,10 @@ struct ServiceTransport::Impl {
         if (lockdown) {
             std::optional<transport::Lockdown::ServiceEndpoint> endpoint;
             {
-                Watchdog watch(remaining(until), cancelled, [this] { lockdown->interrupt(); });
+                transport::IoBudget operation_budget({remaining(until), cancelled});
+                transport::BudgetWatchdog watch(operation_budget, [this] { lockdown->interrupt(); });
                 if (watch.active()) endpoint = lockdown->start_service(kUsbService, error);
-                if (!watch.finish(error) || !endpoint || !endpoint->port) return false;
+                if (!watch.finish(error, "DDI service operation") || !endpoint || !endpoint->port) return false;
             }
             auto mux = transport::Usbmux::open_for_service(remaining(until), cancelled, error);
             if (!mux) return false;
@@ -186,9 +132,10 @@ struct ServiceTransport::Impl {
             if (!opened) return false;
             socket = std::move(*opened);
             if (endpoint->requires_tls) {
-                Watchdog watch(remaining(until), cancelled, [this] { socket.interrupt(); });
+                transport::IoBudget operation_budget({remaining(until), cancelled});
+                transport::BudgetWatchdog watch(operation_budget, [this] { socket.interrupt(); });
                 const auto ok = watch.active() && tls.handshake(socket, lockdown->identity(), error);
-                if (!watch.finish(error) || !ok) return false;
+                if (!watch.finish(error, "DDI service operation") || !ok) return false;
             }
             return true;
         }
@@ -201,12 +148,14 @@ struct ServiceTransport::Impl {
         tcp = std::make_unique<net::TcpStream>(*device->stack());
         bool ok = false;
         {
-            Watchdog watch(remaining(until), cancelled, interrupter());
+            transport::IoBudget operation_budget({remaining(until), cancelled});
+            transport::BudgetWatchdog watch(operation_budget, interrupter());
             ok = watch.active() && tcp->connect(endpoint->port, error);
-            if (!watch.finish(error) || !ok) return false;
+            if (!watch.finish(error, "DDI service operation") || !ok) return false;
         }
-        Watchdog watch(remaining(until), cancelled, interrupter());
-        if (!watch.active()) return watch.finish(error);
+        transport::IoBudget operation_budget({remaining(until), cancelled});
+        transport::BudgetWatchdog watch(operation_budget, interrupter());
+        if (!watch.active()) return watch.finish(error, "DDI service operation");
         auto checkin = V::Dict(); checkin.set("Label", V::Str("xdb"));
         checkin.set("ProtocolVersion", V::Str("2")); checkin.set("Request", V::Str("RSDCheckin"));
         ok = write_frame(checkin, error);
@@ -218,7 +167,7 @@ struct ServiceTransport::Impl {
                 ok = false; break;
             }
         }
-        return watch.finish(error) && ok;
+        return watch.finish(error, "DDI service operation") && ok;
     }
 };
 
@@ -247,18 +196,20 @@ PlistService ServiceTransport::service() {
     service.request = [this](const V &request, Ms timeout, std::string &error) -> std::optional<V> {
         error.clear();
         try {
-            Watchdog watch(timeout, impl_->cancelled, impl_->interrupter());
+            transport::IoBudget operation_budget({timeout, impl_->cancelled});
+            transport::BudgetWatchdog watch(operation_budget, impl_->interrupter());
             auto result = watch.active() && impl_->write_frame(request, error) ? impl_->read_frame(error) : std::optional<V>{};
-            if (!watch.finish(error)) return {};
+            if (!watch.finish(error, "DDI service operation")) return {};
             return result;
         } catch (const std::exception &e) { error = e.what(); return {}; }
     };
     service.receive = [this](Ms timeout, std::string &error) -> std::optional<V> {
         error.clear();
         try {
-            Watchdog watch(timeout, impl_->cancelled, impl_->interrupter());
+            transport::IoBudget operation_budget({timeout, impl_->cancelled});
+            transport::BudgetWatchdog watch(operation_budget, impl_->interrupter());
             auto result = watch.active() ? impl_->read_frame(error) : std::optional<V>{};
-            if (!watch.finish(error)) return {};
+            if (!watch.finish(error, "DDI service operation")) return {};
             return result;
         } catch (const std::exception &e) { error = e.what(); return {}; }
     };
@@ -266,9 +217,10 @@ PlistService ServiceTransport::service() {
         error.clear();
         try {
             if (!data && size) { error = "DDI service raw upload data is missing"; return false; }
-            Watchdog watch(timeout, impl_->cancelled, impl_->interrupter());
+            transport::IoBudget operation_budget({timeout, impl_->cancelled});
+            transport::BudgetWatchdog watch(operation_budget, impl_->interrupter());
             const auto ok = watch.active() && impl_->write(data, size, error);
-            return watch.finish(error) && ok;
+            return watch.finish(error, "DDI service operation") && ok;
         } catch (const std::exception &e) { error = e.what(); return false; }
     };
     service.reconnect = [this](Ms timeout, std::string &error) {
