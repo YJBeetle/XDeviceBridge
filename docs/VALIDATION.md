@@ -197,3 +197,21 @@ The actual scrctl executable additionally recorded a five-second A/V MP4 through
 the disposable server with `--no-window --no-playback --audio-dup`. It finalized
 successfully, and independent FFmpeg decoding of both tracks returned no errors.
 This exercises consumer-to-server recording without repeating a listening test.
+
+
+## Notarized local upgrade (2026-10-24)
+
+The Developer ID runtime from run `40005397783` was downloaded, checked against
+its published SHA256, and verified with strict code-signature checks for the CLI
+and all bundled dylibs. An online `codesign --check-notarization` check with the
+explicit `=notarized` requirement succeeded for the CLI.
+
+The extracted installer upgraded the existing user-local installation. There were
+no established client connections before the upgrade. The existing device-store
+file was byte-for-byte unchanged, and the installed CLI started the new service
+and returned `server.info` with protocol 1 and version 0.1.0. This is local upgrade
+and CLI ticket verification, not an App-bundle Gatekeeper assessment or a minimum-OS test.
+
+MaaFramework's dependency update `630770a6` subsequently passed both upstream PR
+[build](https://github.com/MaaXYZ/MaaFramework/actions/runs/40006341916) and
+[test](https://github.com/MaaXYZ/MaaFramework/actions/runs/40006342086) workflows.

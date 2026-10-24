@@ -33,10 +33,11 @@ Custom absolute install and command directories can be supplied:
 ```
 
 macOS packages target macOS 13.3 or newer, for the archive's CPU architecture.
-They are signed locally (ad hoc), not notarized by Apple. GitHub downloads may
-therefore need approval in macOS Privacy & Security. Linux packages built on
-Ubuntu 24.04 require a compatible glibc/libstdc++ runtime and system zlib; they
-are not universal Linux binaries. Linux USB access also requires usbmuxd.
+Ordinary `packages` artifacts are ad hoc signed; separately labelled `notarized`
+ZIPs are Developer ID signed and Apple Accepted. See the online ticket check below.
+Linux packages built on Ubuntu 24.04 require a compatible glibc/libstdc++ runtime
+and system zlib; they are not universal Linux binaries. Linux USB access also
+requires usbmuxd.
 
 ### Windows
 
@@ -127,3 +128,11 @@ Version tags matching the CMake project version (`vX.Y.Z`) automatically trigger
 the macOS signing/notarization workflow. The tagged commit must be in main history.
 Manual main runs remain available; normal pushes and PRs do not submit to Apple.
 This produces accepted artifacts, not an automatic GitHub Release.
+
+
+For a notarized CLI package, verify the code and its online notarization ticket
+from the extracted runtime directory:
+
+```sh
+codesign --verify --strict --check-notarization --test-requirement='=notarized' ./bin/xdb
+```

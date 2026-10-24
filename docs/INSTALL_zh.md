@@ -122,3 +122,10 @@ P12 包含 Developer ID Application 私钥；NOTARY_APP_PASSWORD 为 App 专用�
 公证响应另作为 `macos-notarization-result` 附件保留。任务不自动发布 Release。
 普通 packages 工作流仍为 ad hoc 开发包。ZIP 和裸 CLI 不能 staple，
 Gatekeeper 需联网查询票据；若需离线票据，应另行分发可 staple 的 DMG/PKG。
+
+
+对于公证 CLI 运行包，可在解压目录中校验代码及在线公证票据：
+
+```sh
+codesign --verify --strict --check-notarization --test-requirement='=notarized' ./bin/xdb
+```
