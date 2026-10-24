@@ -34,6 +34,10 @@ with FakeServer() as server, tempfile.TemporaryDirectory(prefix='xdb-cli-') as t
         assert (result.returncode == 0) == ok, (args, result.stdout, result.stderr)
         return result
 
+    removed = run('pairing', 'import', '/nonexistent/record', ok=False)
+    assert 'Unknown command' in removed.stderr
+    assert 'pairing import' not in subprocess.check_output([exe, '--help'], text=True)
+    assert 'pairing.import' not in server.methods()
     short = run('devices').stdout
     long = run('devices', '-l').stdout
     assert 'mock-iphone\tpaired' in short and 'en0' not in short

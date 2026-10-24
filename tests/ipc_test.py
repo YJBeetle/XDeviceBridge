@@ -91,8 +91,9 @@ with tempfile.TemporaryDirectory(prefix='xdb-ipc-') as tmp:
             assert default_client, client.xdb_last_error()
             client.xdb_client_destroy(default_client)
             assert request(c,'devices',{'transport':'wifi','timeout_ms':0})['ok']
-            assert not request(c,'pairing.import',{'record':'invalid'})['ok']
-            assert not Path(data.decode()).exists(), 'invalid import wrote persistent state'
+            removed = request(c,'pairing.import',{'record':'invalid'})
+            assert not removed['ok'] and removed['error']['code']=='not_connected'
+            assert not Path(data.decode()).exists(), 'removed endpoint wrote persistent state'
             assert not request(c,'connection.open',{'udid':'offline','transport':'invalid'})['ok']
             assert not request(c,'connection.attach',{'attachment':'invalid'})['ok']
             assert request(c,'connection.close')['ok']

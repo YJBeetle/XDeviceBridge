@@ -59,7 +59,6 @@ void help() {
                  "xdb [-s UDID] pair [--wifi|--usb] [--timeout MS]\n"
                  "xdb [-s UDID] ddi prepare [--wifi [ADDRESS]] [--cache-dir DIR] [--replace]\n"
                  "xdb [-s UDID] screenshot FILE [--wifi [ADDRESS]]\n"
-                 "xdb pairing import FILE\n"
                  "xdb rpc METHOD [JSON_PARAMS] [--output FILE]\n"
                  "xdb rpc-shell\n"
                  "Client options: --port PORT (or XDB_PORT).\n"
@@ -163,7 +162,7 @@ int main(int argc, char **argv) {
             return ok ? 0 : 1;
         }
         if (args[0] != "devices" && args[0] != "pair" && args[0] != "ddi" && args[0] != "screenshot" &&
-            args[0] != "pairing" && args[0] != "rpc" && args[0] != "rpc-shell")
+            args[0] != "rpc" && args[0] != "rpc-shell")
             throw std::invalid_argument("Unknown command; run xdb --help");
         if (!dir.empty() && !xdb_client_start_server(port, dir.c_str())) {
             std::cerr << xdb_last_error() << '\n';
@@ -228,7 +227,7 @@ int main(int argc, char **argv) {
                     }
                     for (const auto &warning : value["result"]["warnings"])
                         std::cerr << "warning: " << warning.get<std::string>() << '\n';
-                } else if (method == "pair" || method == "pairing.import")
+                } else if (method == "pair")
                     std::cout << "Paired: " << value["result"].value("udid", std::string()) << '\n';
                 else
                     std::cout << "OK\n";
@@ -263,18 +262,6 @@ int main(int argc, char **argv) {
             if (timeout >= 0)
                 params["timeout_ms"] = timeout;
             return request(args[0], params).value("ok", false) ? 0 : 1;
-        }
-        if (args[0] == "pairing") {
-            if (args.size() != 3 || args[1] != "import")
-                throw std::invalid_argument("pairing import requires FILE");
-            std::ifstream file(std::filesystem::u8path(args[2]), std::ios::binary);
-            std::string record;
-            char data[16385];
-            file.read(data, sizeof(data));
-            record.assign(data, size_t(file.gcount()));
-            if (!file.eof() || record.size() > 16384)
-                throw std::invalid_argument("Pairing file is unreadable or exceeds 16 KiB");
-            return request("pairing.import", {{"record", record}}).value("ok", false) ? 0 : 1;
         }
         if (args[0] != "screenshot" && args[0] != "ddi")
             throw std::invalid_argument("Unknown command; run xdb --help");

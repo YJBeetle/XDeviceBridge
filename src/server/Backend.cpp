@@ -226,20 +226,6 @@ Reply Backend::handle(const std::string &method, const Json &p, const Event &eve
         r.result = {{"udid", value.udid}, {"reused", value.reused}};
         return r;
     }
-    if (method == "pairing.import") {
-        auto text = p.at("record").get<std::string>();
-        if (text.size() > 16384)
-            return Reply::failure("invalid_params", "Pairing record exceeds 16 KiB");
-        auto record = wifi::parse_record(text, error);
-        if (!record || !record->complete() || !record->has_peer_identity())
-            return fail(error.empty() ? "Incomplete pairing record" : error);
-        auto path = wifi::record_path(directory_, record->udid);
-        if (!wifi::save_record(path, *record, error))
-            return fail(error);
-        Reply r;
-        r.result = {{"udid", record->udid}};
-        return r;
-    }
     if (method == "ddi.download") {
         ddi::DownloadOptions o;
         o.cancelled = cancel;
