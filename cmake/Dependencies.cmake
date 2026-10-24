@@ -1,5 +1,4 @@
 include(FetchContent)
-option(XDB_FETCH_DEPENDENCIES "下载缺失的依赖（固定版本及 SHA256）" ON)
 
 # 本地源码覆盖不执行下载；关闭下载时仍允许使用调用方指定的现有源码。
 find_package(pugixml 1.16 QUIET CONFIG)

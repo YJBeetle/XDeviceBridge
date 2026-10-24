@@ -79,6 +79,11 @@ C ABI 定义位于 [xdb.h](include/xdb/xdb.h)，通信协议见[通信协议说�
 包括字段、默认值、错误码、状态前提、内存所有权、并发取消规则和示例。
 这是待评审的接口基线，尚未宣称 1.0 已发布或接口已冻结。
 
+通过 `add_subdirectory` 嵌入时默认不下载依赖。调用方可提供
+`nlohmann_json::nlohmann_json`（>= 3.12.0）、已安装依赖或本地 FetchContent 源码覆盖；
+需要自动下载时须显式开启 `XDB_FETCH_DEPENDENCIES=ON`。独立构建仍默认下载固定版本依赖，
+也可用 `XDB_FETCH_DEPENDENCIES=OFF` 强制离线解析。
+
 ## 命令行使用
 
 桌面端 CLI 和 SDK 会在需要时自动启动后台 Server。客户端退出后，Server 继续运行，

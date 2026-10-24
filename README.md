@@ -72,6 +72,12 @@ The C ABI is in [xdb.h](include/xdb/xdb.h); the wire protocol is documented in
 The 1.0 preparation reference is [RPC API](docs/API.md) and [C SDK](docs/C_API.md),
 including defaults, errors, states, lifetimes and examples. The baseline is not yet frozen.
 
+When built via `add_subdirectory`, dependency downloading defaults to OFF. Supply
+`nlohmann_json::nlohmann_json` (>= 3.12.0), installed dependency packages or local
+FetchContent source overrides, or explicitly opt in with `XDB_FETCH_DEPENDENCIES=ON`.
+Standalone builds retain automatic pinned downloads; `XDB_FETCH_DEPENDENCIES=OFF`
+also enforces offline dependency resolution there.
+
 ## Command-line use
 
 Desktop CLI and SDK clients automatically start a background server when needed.
