@@ -106,7 +106,7 @@ is a quick summary rather than the full method contract.
 | `input.touch` | `x`, `y`: 0..1; `down`: bool | Contact/release report delivery status |
 | `input.keyboard` | `usages`: USB HID keyboard usages, each <240 | Replaces the held keyboard usage set; `[]` releases |
 | `input.button` | `page` (default 12), `usage`, `down` | Hardware consumer-key down/up |
-| `input.text` | `text`: US-keyboard ASCII/tab/newline, <=4096 bytes | Unsupported text is rejected in full |
+| `input.text` | `text`: US-keyboard ASCII/tab/newline, <=4096 bytes; `timeout_ms`: 1..300000 (default 30000) | Unsupported text is rejected in full |
 | `app.list` | none | Bundle identifiers and names |
 | `app.launch` | `bundle_id`, optional `terminate_existing` | Request status |
 | `app.stop` | `bundle_id` | Request status |

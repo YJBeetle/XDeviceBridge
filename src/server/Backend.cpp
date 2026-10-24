@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 #include "Backend.h"
+#include "ApiParameters.h"
 #include "Discovery.h"
 #include "ddi/Download.h"
 #include "hid/Hid.h"
@@ -448,6 +449,7 @@ Reply Backend::handle(const std::string &method, const Json &p, const Event &eve
         return r;
     }
     if (method == "screenshot") {
+        const auto format = detail::screenshot_format(p);
         if (!prepare_display())
             return fail(error);
         auto before = geometry();
@@ -467,7 +469,7 @@ Reply Backend::handle(const std::string &method, const Json &p, const Event &eve
         if (before != after)
             return Reply::failure("geometry_changed", "Display changed during screenshot; retry capture");
         r.result = {{"format", "png"}, {"display", after}};
-        if (p.value("format", std::string("png")) == "bgra") {
+        if (format == "bgra") {
             Frame frame;
             if (!media::decode_png_bgra(image->data, frame, error))
                 return fail(error);
@@ -509,15 +511,12 @@ Reply Backend::handle(const std::string &method, const Json &p, const Event &eve
         o.include_audio = p.value("audio", false);
         o.video_orientation = bounded(p, "orientation", 0, 0, 270);
         if (p.value("orientation_from_device", false)) {
-            if (!s.display)
-                s.display = remote::DisplayWatcher::start(s.device, 1, error);
-            auto g = geometry().value("orientation", std::string());
-            if (g == "landscapeLeft" || g == "rot90")
-                o.video_orientation = 90;
-            else if (g == "landscapeRight" || g == "rot270")
-                o.video_orientation = 270;
-            else if (g == "portraitUpsideDown" || g == "rot180")
-                o.video_orientation = 180;
+            if (!prepare_display())
+                return fail(error);
+            const auto angle = detail::recording_orientation(geometry().value("orientation", std::string()));
+            if (!angle)
+                return fail("Unsupported initial display orientation");
+            o.video_orientation = *angle;
         }
         s.recorder = media::Recorder::start(o, error);
         return s.recorder ? Reply{} : fail(error);
@@ -652,6 +651,30 @@ Reply Backend::handle(const std::string &method, const Json &p, const Event &eve
         return ok ? Reply{} : fail(error);
     }
     if (method.starts_with("input.")) {
+        if (method == "input.text") {
+            auto text = p.at("text").get<std::string>();
+            if (text.size() > 4096)
+                return Reply::failure("invalid_params", "Text exceeds 4096 bytes");
+            for (unsigned char c : text)
+                if ((c < 32 && c != '\t' && c != '\n') || c > 126)
+                    return Reply::failure("unsupported", "Only US keyboard ASCII text is supported");
+            const int hold = bounded(p, "hold_ms", 0, 0, 1000);
+            const int timeout = bounded(p, "timeout_ms", 30000, 1, 300000);
+            if (s.video)
+                s.video->wake();
+            const transport::IoBudget budget({std::chrono::milliseconds(timeout), cancel});
+            std::stop_source stop;
+            transport::BudgetWatchdog watch(budget, [&] { stop.request_stop(); });
+            // A per-request endpoint lets cancellation interrupt this send without
+            // breaking another attached client's media/control service.
+            auto typing = hid::Service::open(s.device, error, false, stop.get_token());
+            const bool delivered = typing && typing->type_text(text, hold, error, stop.get_token());
+            const bool in_budget = watch.finish(error);
+            if (!in_budget || !delivered)
+                return fail(error);
+            s.hid = std::move(typing);
+            return {};
+        }
         if (!s.hid)
             s.hid = hid::Service::open(s.device, error);
         if (!s.hid)
@@ -678,15 +701,6 @@ Reply Backend::handle(const std::string &method, const Json &p, const Event &eve
             if (ok)
                 s.touching = down;
             return ok ? Reply{} : fail(error);
-        }
-        if (method == "input.text") {
-            auto text = p.at("text").get<std::string>();
-            if (text.size() > 4096)
-                return Reply::failure("invalid_params", "Text exceeds 4096 bytes");
-            for (unsigned char c : text)
-                if ((c < 32 && c != '\t' && c != '\n') || c > 126)
-                    return Reply::failure("unsupported", "Only US keyboard ASCII text is supported");
-            return s.hid->type_text(text, bounded(p, "hold_ms", 0, 0, 1000), error) ? Reply{} : fail(error);
         }
         if (method == "input.keyboard") {
             auto usages = p.at("usages").get<std::vector<uint16_t>>();

@@ -288,11 +288,16 @@ Session required. `text`: string **required**, at most 4096 bytes; printable
 US-keyboard ASCII 32..126, tab and newline only. Entire request is rejected with
 `unsupported` before typing if any character is outside this set.
 `hold_ms`: integer 0..1000, default 0; delay after each generated HID report,
-including modifier/release reports. Result `{}`. Does not use clipboard, choose
+including modifier/release reports. `timeout_ms`: integer 1..300000, default 30000;
+one total budget across HID connection, report delivery and holds. Result `{}`. Does not use clipboard, choose
 an input field or support host IME/Unicode. Focus and suitable phone keyboard
 layout are caller preconditions; UI processing may lag behind delivery. Longer
-text/hold can run much longer than one character interval; this path currently
-has no per-character cancellation check (a pre-1.0 review item).
+text/hold may exhaust the budget and return operation_failed after partial input.
+Cancellation interrupts only this request's HID endpoint and wakes holds; it does
+not roll back typed characters or guarantee a final release reached the phone.
+After a timeout, send input.keyboard with [] if a release is needed; after socket
+interruption, reconnect/attach before sending it. No further text reports are
+intentionally sent after cancellation is observed.
 
 ### `input.button`
 
@@ -312,9 +317,7 @@ Result for PNG: `{format:"png",display:Display}`, raw PNG binary. For BGRA:
 raw BGRA binary. BGRA dimensions come from decoded PNG; respect row_pitch.
 Waits for initial display geometry, captures, then checks geometry equality. A
 change gives `geometry_changed` and discards that capture. No audio/video pump is
-required. Incidental current behavior: format strings other than bgra fall back
-to PNG; stricter enum validation is still a pre-1.0 review item, not a new supported
-output format.
+required. Other format strings return invalid_params before initiating capture.
 
 ### `video.start`
 
@@ -399,10 +402,10 @@ Session required, before video/audio/recorder exist. Result `{}`. At least one
 track must be selected. Audio-only requires zero orientation. Unsupported angles,
 container-specific rotation, missing muxer or invalid recorder configuration may
 return `operation_failed`; explicit format/path validation gives `invalid_params`.
-With orientation_from_device, a recognized device rotation overrides the numeric
-orientation; currently this branch can see an uninitialized subscription, so a
-caller needing initial device orientation should first obtain display.info (a
-pre-1.0 review item). No automatic rotation/reencoding/letterboxing.
+With orientation_from_device, the backend waits for valid initial display geometry;
+a recognized device rotation overrides the numeric orientation, including resetting
+it to zero for portrait. Unknown/unavailable initial orientation fails instead of
+silently using the numeric fallback. No automatic rotation/reencoding/letterboxing.
 
 Configuration does not start the media tracks. Start selected video/audio producers
 next, then call media.finish to flush/finalize. Container tracks remain original
@@ -479,11 +482,11 @@ audio.read from another; schedule both outside sound callbacks. A container flow
 
 ## Items to resolve before calling this a frozen 1.0 contract
 
-- Review supported method/parameter/error domains and add explicit validation
-  where current implementation has incidental fallbacks, especially screenshot
-  format and recording's asynchronous initial orientation.
-- Decide/implement bounded cancellation for long input.text report sequences;
-  document realistic deadlines separately from per-stage pairing/DDI budgets.
+- Review the remaining supported method/parameter/error domains against the
+  implementation, keeping realistic deadlines separate from per-stage budgets.
+  Screenshot enum validation, initial recording orientation and bounded/cancellable
+  input.text delivery are implemented; their new behavior still needs review as
+  part of the candidate baseline.
 - Run an old-client/new-server compatibility fixture against a fixed released
   baseline, rather than only same-source IPC regression. Package and ABI versions
   are distinct; no device feature is promised merely by a successful hello.

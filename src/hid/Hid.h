@@ -108,7 +108,7 @@ class Service {
 public:
     /// RSD 目录缺少服务或建立连接失败时返回 nullptr，并填写 err。
     static std::unique_ptr<Service> open(xdb::remote::Device &device, std::string &err,
-                                        bool verbose = false);
+                                        bool verbose = false, std::stop_token cancel = {});
 
     struct Surface {
         uint64_t service_id = 0;
@@ -161,8 +161,9 @@ public:
     /// 向设备自带键盘面逐条发送 text_reports() 生成的 ASCII 报告。
     /// hold_ms > 0 时在每条报告后等待，包括修饰键和松键报告。
     /// 文本目标须由调用方保持焦点；本函数不检查焦点，也不确认文本已被接收。
+    /// cancel 会终止后续报告并唤醒 hold 等待；已发送的部分不能撤销。
     /// 不支持的字符被跳过，发送成功不表示原始字符串已完整输入。
-    bool type_text(const std::string &text, int hold_ms, std::string &err);
+    bool type_text(const std::string &text, int hold_ms, std::string &err, std::stop_token cancel = {});
 
 private:
     explicit Service(std::unique_ptr<xdb::remote::ServiceConnection> conn)

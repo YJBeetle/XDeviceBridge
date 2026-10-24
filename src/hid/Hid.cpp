@@ -1,5 +1,6 @@
 #include "i18n/Translation.h"
 #include "Hid.h"
+#include "TextReports.h"
 
 #include <algorithm>
 #include <chrono>
@@ -92,12 +93,12 @@ uint16_t normalize(double v) {    if (!(v > 0.0)) {  // 非正值及 NaN 均映�
 }
 
 std::unique_ptr<Service> Service::open(xdb::remote::Device &device, std::string &err,
-                                      bool verbose) {
+                                      bool verbose, std::stop_token cancel) {
     if (!device.rsd().has_service(kServiceName)) {
         err = XDB_TR("RSD directory missing ") + std::string(kServiceName);
         return nullptr;
     }
-    auto conn = device.connect(kServiceName, err, verbose);
+    auto conn = device.connect(kServiceName, err, verbose, cancel);
     if (conn == nullptr) {
         return nullptr;
     }
@@ -227,16 +228,9 @@ bool Service::press_chord(uint64_t surface, const std::vector<uint16_t> &usages,
     return send_report(surface, keyboard_report({}), err);
 }
 
-bool Service::type_text(const std::string &text, int hold_ms, std::string &err) {
-    for (const auto &usages : text_reports(text)) {
-        if (!send_report(kSurfaceKeyboard, keyboard_report(usages), err)) {
-            return false;
-        }
-        if (hold_ms > 0) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(hold_ms));
-        }
-    }
-    return true;
+bool Service::type_text(const std::string &text, int hold_ms, std::string &err, std::stop_token cancel) {
+    return detail::send_text_reports(text_reports(text), hold_ms, cancel,
+        [&](const auto &usages) { return send_report(kSurfaceKeyboard, keyboard_report(usages), err); }, err);
 }
 
 std::unique_ptr<Buttons> Buttons::open(xdb::remote::Device &device, std::string &err,

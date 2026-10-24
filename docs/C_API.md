@@ -131,7 +131,7 @@ to reach the phone. Reconnect after transport/protocol failure. A local bad-para
 request can fail before sending; the API does not provide a separate typed
 transport-status enum yet.
 
-No generic per-call timeout parameter. Method-specific discovery/DDI/pairing/frame
+No generic per-call timeout parameter. Method-specific discovery/DDI/pairing/frame/text
 budgets do not cover every device service operation. Run requests off the UI/audio
 thread and use interrupt from another thread if the application deadline expires.
 

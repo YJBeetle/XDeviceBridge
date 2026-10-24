@@ -1,5 +1,26 @@
 # Validation
 
+## 2026-10-24: candidate API boundary checks
+
+- Invalid screenshot format/type values now fail parameter validation rather than
+  falling back to PNG. Unit cases cover defaults, png/bgra and invalid values.
+- Initial recording direction now waits for valid display geometry, maps the
+  reported orientation explicitly (portrait overrides a conflicting numeric
+  fallback with zero), and rejects unrecognized direction instead of guessing.
+- input.text has a 30-second default total request budget (configurable 1..300000
+  ms). Its per-request HID connection carries cancellation; queued report holds
+  wake on stop and delivery stops between reports. Tests check cancellation before
+  delivery, interrupting a one-second hold, a real 25 ms budget expiry, preserving
+  uncancelled report order/final release, and stopping on write failure.
+- Existing HID, service endpoint cancellation, recorder, IPC and documentation
+  coverage tests pass alongside the new parameter/sequence checks. This is not
+  an old-client/new-server binary compatibility acceptance.
+- A new physical-device check was attempted but USB discovery returned no devices;
+  screenshot rejection/recording initial-direction hardware checks were skipped,
+  not counted as passed. Earlier actual device checks below remain scoped to
+  their tested revision. Partial text on cancellation is not rolled back; callers
+  may need an explicit keyboard release using a valid connection.
+
 ## 2026-10-24: current XDB path and upgrade checks
 
 - macOS / iPhone14,4 / iOS 27.0.1, USB, real CLI and C client against an
