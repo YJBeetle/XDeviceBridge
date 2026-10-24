@@ -109,8 +109,6 @@ scrctl 的存在理由是它的**形态**而非能力：原生窗口 + scrcpy �
 
 ## 9. 探针工具
 
-原生 C++ 诊断与归档实验的当前构建方式、可执行文件路径见 [工具说明](TOOLS.md)。
-
 见 `tools/probe/`。需要自行 `pip install pymobiledevice3 pillow numpy av`（探针为研究用途，非 scrctl 运行时依赖）。
 
 ```bash
