@@ -855,7 +855,8 @@ void FramePump::loop() {
         // 沿用真机验证的 32 字节裸 RR：发送者为 answer.RemoteSSRC，
         // 报告块指向设备 LocalSSRC，发至 sender.port（已验证与 SourcePort 一致）。
         if (!options_.debug_suppress_rr && media_source && now_ms() >= next_rtcp_ms_) {
-            next_rtcp_ms_ += kRtcpPeriodMs;
+            // 错过的周期不追补；与音频一致，从当前时间安排下一次保活。
+            next_rtcp_ms_ = now_ms() + kRtcpPeriodMs;
             const auto rr = xdb::rt::build_rr(session_->started().remote_ssrc,
                                                  *media_source,
                                                  depacketizer ? depacketizer->extended_sequence() : 0);
