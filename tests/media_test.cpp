@@ -288,6 +288,37 @@ void check_start_answer() {
     }
 }
 
+void check_payload_type() {
+    using namespace xdb::xpc;
+    using xdb::media::StreamSession;
+    const auto answer = [](Value pt) {
+        auto config = make_dict(); dict_set(config, "RxPayloadType", std::move(pt));
+        auto connection = make_dict(); dict_set(connection, "streamConfig", std::move(config));
+        auto result = make_dict(); dict_set(result, "connection", std::move(connection)); return result;
+    };
+    for (int pt : {0, 63, 96, 100, 101, 127, 128, 191, 224, 229, 255}) {
+        std::string error;
+        const auto parsed = xdb::media::parse_start_answer(answer(make_int64(pt)), {}, error);
+        check(parsed && parsed->payload_type == (pt & 127), "nonconflicting negotiated PT retains existing normalization: " + std::to_string(pt));
+    }
+    for (int pt = 64; pt <= 95; ++pt) {
+        for (int marker : {0, 128}) {
+            std::string error;
+            StreamSession::StartStatus status = StreamSession::StartStatus::Started;
+            const auto parsed = xdb::media::parse_start_answer(answer(make_uint64(pt + marker)), {}, error, &status);
+            check(!parsed && status == StreamSession::StartStatus::AcceptedInvalidAnswer &&
+                      error.find("RxPayloadType") != std::string::npos,
+                  "conflicting PT is rejected before a media pump can silently discard marked RTP: " + std::to_string(pt + marker));
+        }
+    }
+    for (auto pt : {make_int64(-1), make_uint64(256), make_uint64(~uint64_t(0)),
+                    make_bool(true), make_double(101), make_string("101"), make_dict()}) {
+        std::string error;
+        check(!xdb::media::parse_start_answer(answer(std::move(pt)), {}, error) && !error.empty(),
+              "malformed negotiated payload type is rejected without narrowing or fallback");
+    }
+}
+
 void check_source_ssrc() {
     using namespace xdb::xpc;
     using xdb::media::parse_start_answer;
@@ -404,6 +435,7 @@ int main() {
 
     std::printf("== 起流回复端口及会话参数 ==\n");
     check_start_answer();
+    check_payload_type();
     check_source_ssrc();
 
     std::printf("== 音频路由答复校验 ==\n");

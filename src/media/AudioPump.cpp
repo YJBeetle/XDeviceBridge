@@ -550,7 +550,8 @@ void AudioPump::loop() {
             continue;
         }
 
-        // RTP/RTCP 在此端口复用。RTCP 的 length 不是 RTP sequence，必须先分类。
+        // RTP/RTCP 在此端口复用；起流答复已拒绝冲突的媒体 PT 64..95。
+        // RTCP 的 length 不是 RTP sequence，必须先分类。
         // parser 校验 compound 边界及 SR/RR 字段；其他 RTCP 仅检查帧边界，
         // 不将它们当作媒体活性。坏 RTCP 也不能落入 RTP 处理路径。
         if (datagram.size() >= 2 && datagram[1] >= 192 && datagram[1] <= 223) {

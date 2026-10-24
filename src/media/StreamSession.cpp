@@ -137,11 +137,19 @@ std::optional<StreamSession::Started> parse_start_answer(
     // connection.streamConfig.RxPayloadType 是本次协商的媒体载荷类型。
     const auto *connection = started.answer.find("connection");
     if (connection != nullptr) {
-        // 媒体 PT 使用协商结果；缺失时沿用默认 100。RTP 的该字段只有七位，因此
-        // 取低七位。音视频的接收端仍需先识别裸 RTCP，再按媒体 PT 处理 RTP。
+        // 保留既有低七位归一化（兼容带 marker 的整字节值），但不接受超出字节范围
+        // 的值。RTP/RTCP 共用端口时，PT 64..95 与 RTCP 类型冲突（RFC 5761 §4）。
         if (const auto *sc = connection->find("streamConfig"); sc != nullptr) {
-            started.payload_type =
-                static_cast<uint8_t>(sc->at("RxPayloadType").as_int_or(100) & 0x7F);
+            if (const auto *pt = sc->find("RxPayloadType")) {
+                uint32_t value = 0;
+                if (!parse_ssrc(*pt, value) || value > 255 ||
+                    ((value & 0x7f) >= 64 && (value & 0x7f) <= 95)) {
+                    err = "Invalid startmediastream answer: connection.streamConfig.RxPayloadType "
+                          "must be an integer byte whose low-seven-bit payload type excludes 64..95 for RTP/RTCP multiplexing";
+                    return std::nullopt;
+                }
+                started.payload_type = static_cast<uint8_t>(value & 0x7f);
+            }
             // 名称采用设备视角：LocalSSRC 是设备媒体源，客户端 RTCP 报告块引用它；
             // RemoteSSRC 是客户端反馈的发送者身份。已测设备回显 offer 中声明的 SSRC，
             // 不代表总会另行生成新值；反馈使用本次 answer 中的两个值。
