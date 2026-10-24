@@ -8,11 +8,13 @@
 #ifdef XDB_HAVE_LIBAV
 #include "decode/Swscale.h"
 extern "C" {
+#include <libavutil/crc.h>
 #include <libavutil/log.h>
 }
 #endif
 
 #include "decode/AudioToolboxStatus.h"
+#include "ipc/Wire.h"
 #include "media/AudioPump.h"
 #include "media/FramePump.h"
 #include "media/MediaOffer.h"
@@ -20,6 +22,7 @@ extern "C" {
 #include "media/StreamSession.h"
 #include "plist/Plist.h"
 #include "util/Deflate.h"
+#include "util/Bytes.h"
 
 namespace {
 
@@ -735,6 +738,29 @@ int main() {
         xdb::Frame g;
         check(!xdb::media::decode_png_bgra(garbage, g, err) && !err.empty(),
               "非 PNG 字节要失败且给原因: " + err);
+        // 完整合法的 1-bit 灰度 PNG：编码仅约 2 MiB，但 BGRA 超过 64 MiB。
+        // 无需外部 PNG encoder，覆盖解码前的像素上限而非只测损坏文件。
+        std::vector<uint8_t> large_png{0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a};
+        const auto chunk = [&](const char* type, const std::vector<uint8_t>& data) {
+            xdb::util::append_be(large_png,data.size(),4);
+            const auto start = large_png.size();
+            large_png.insert(large_png.end(),type,type+4);
+            large_png.insert(large_png.end(),data.begin(),data.end());
+            const auto crc = av_crc(av_crc_get_table(AV_CRC_32_IEEE_LE),0xffffffffu,
+                                    large_png.data()+start,4+data.size()) ^ 0xffffffffu;
+            xdb::util::append_be(large_png,crc,4);
+        };
+        std::vector<uint8_t> ihdr;
+        xdb::util::append_be(ihdr,4097,4); xdb::util::append_be(ihdr,4096,4);
+        ihdr.insert(ihdr.end(),{1,0,0,0,0});
+        chunk("IHDR",ihdr);
+        chunk("IDAT",xdb::util::zlib_store(std::vector<uint8_t>((1+513)*4096,0)));
+        chunk("IEND",{});
+        check(!xdb::media::decode_png_bgra(large_png,g,err) && !err.empty() && g.pixels.empty(),
+              "有效 PNG 展开后超过 BGRA 正文预算时拒绝分配输出");
+        std::vector<uint8_t> too_large(xdb::ipc::max_binary+1,0);
+        check(!xdb::media::decode_png_bgra(too_large,g,err) && err.find("byte limit") != std::string::npos,
+              "PNG 编码输入也受单正文预算限制");
 #else
         check(!ok && err.find("FFmpeg") != std::string::npos,
               "没编 libav 的构建要明说缺后端: " + err);

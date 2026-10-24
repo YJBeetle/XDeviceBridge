@@ -1,8 +1,10 @@
 #include "media/ScreenshotSource.h"
 
 #include <chrono>
+#include <cstring>
 #include <utility>
 
+#include "ipc/Wire.h"
 #include "remote/Device.h"
 #include "remote/Rsd.h"
 #include "xpc/XpcValue.h"
@@ -32,6 +34,10 @@ constexpr int kCaptureTimeoutMs = 5000;
 
 bool decode_png_bgra(const std::vector<uint8_t> &png, xdb::Frame &out, std::string &err) {
 #ifdef XDB_HAVE_LIBAV
+    if (png.empty() || png.size() > ipc::max_binary) {
+        err = "PNG input is empty or exceeds the screenshot byte limit";
+        return false;
+    }
     const AVCodec *codec = avcodec_find_decoder(AV_CODEC_ID_PNG);
     if (codec == nullptr) {
         err = "FFmpeg has no PNG decoder";
@@ -41,16 +47,19 @@ bool decode_png_bgra(const std::vector<uint8_t> &png, xdb::Frame &out, std::stri
     AVPacket *pkt = av_packet_alloc();
     AVFrame *frame = av_frame_alloc();
     bool ok = false;
-    if (ctx != nullptr && pkt != nullptr && frame != nullptr) {
-        pkt->data = const_cast<uint8_t *>(png.data());
-        pkt->size = static_cast<int>(png.size());
+    if (ctx != nullptr && pkt != nullptr && frame != nullptr &&
+        av_new_packet(pkt, static_cast<int>(png.size())) == 0) {
+        // 在解码器分配图像之前限制像素数，BGRA 输出须能装入一个 IPC 正文。
+        ctx->max_pixels = ipc::max_binary / 4;
+        // packet 自有内存包含 libav 要求的零填充，不依赖内部隐式复制。
+        std::memcpy(pkt->data, png.data(), png.size());
         if (avcodec_open2(ctx, codec, nullptr) == 0 && avcodec_send_packet(ctx, pkt) == 0 &&
             avcodec_receive_frame(ctx, frame) == 0) {
             const int w = frame->width;
             const int h = frame->height;
             // PNG 像素格式可能随内容变化，统一通过 libswscale 转换为 BGRA，
             // 不将输入限定为单一格式。
-            if (w > 0 && h > 0) {
+            if (w > 0 && h > 0 && static_cast<size_t>(w) <= ipc::max_binary / 4 / static_cast<size_t>(h)) {
                 SwsContext *sws = sws_getContext(w, h, static_cast<AVPixelFormat>(frame->format), w,
                                                  h, AV_PIX_FMT_BGRA, SWS_POINT, nullptr, nullptr,
                                                  nullptr);
@@ -62,16 +71,17 @@ bool decode_png_bgra(const std::vector<uint8_t> &png, xdb::Frame &out, std::stri
                     out.pixels.resize(static_cast<size_t>(w) * static_cast<size_t>(h) * 4);
                     uint8_t *dst = out.pixels.data();
                     int dst_linesize = w * 4;
-                    sws_scale(sws, frame->data, frame->linesize, 0, h, &dst, &dst_linesize);
+                    const int rows = sws_scale(sws, frame->data, frame->linesize, 0, h, &dst, &dst_linesize);
                     sws_freeContext(sws);
-                    ok = true;
+                    ok = rows == h;
+                    if (!ok) err = "PNG BGRA conversion did not produce the complete image";
                 } else {
                     err = "Cannot create BGRA conversion (format=" +
                           std::string(av_get_pix_fmt_name(static_cast<AVPixelFormat>(frame->format))) +
                           ")";
                 }
             } else {
-                err = "PNG dimensions must be positive";
+                err = "PNG dimensions are invalid or exceed the BGRA byte limit";
             }
         } else {
             err = "FFmpeg could not decode PNG image";

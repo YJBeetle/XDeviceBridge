@@ -320,6 +320,8 @@ Session required. `format`: string, default png; supported caller values png/bgr
 Result for PNG: `{format:"png",display:Display}`, raw PNG binary. For BGRA:
 `{format:"bgra",display:Display,width:integer,height:integer,row_pitch:integer}`,
 raw BGRA binary. BGRA dimensions come from decoded PNG; respect row_pitch.
+PNG-to-BGRA decoding limits both encoded input and packed BGRA output to 64 MiB;
+the pixel limit is applied before the decoder allocates the image.
 Waits for initial display geometry, captures, then checks geometry equality. A
 change gives `geometry_changed` and discards that capture. No audio/video pump is
 required. Other format strings return invalid_params before initiating capture.

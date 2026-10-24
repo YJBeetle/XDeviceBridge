@@ -296,6 +296,8 @@ RPC 结果之前返回 `operation_failed`。
 PNG 返回 `{format:"png",display:Display}` 和原始 PNG 二进制正文。
 BGRA 返回 `{format:"bgra",display:Display,width:integer,height:integer,row_pitch:integer}`
 及原始 BGRA 正文。BGRA 尺寸来自解码后的 PNG，须遵守 row_pitch。
+PNG 转 BGRA 时，编码输入和紧凑 BGRA 输出各不得超过 64 MiB；
+像素数上限在解码器分配图像之前生效。
 先等待初始显示几何，再截图并核对前后几何一致性。
 变化时返回 `geometry_changed`，丢弃本次截图。不需要音视频 pump。
 其他 format 字符串在启动截图前返回 invalid_params。
