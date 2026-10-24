@@ -2,8 +2,11 @@
 
 This is the **client-to-host-server protocol**, not Apple's device protocol.
 The server listens only on IPv4 loopback and accepts local clients without
-authentication. Phone pairing and device authentication are handled separately
-by the server.
+authentication. Loopback limits direct network access; it does not authenticate
+client processes or operating-system users. Any local process able to connect can
+invoke device control, clipboard access and server shutdown. Phone pairing and
+device authentication are handled separately by the server and do not authorize
+individual local clients.
 
 ## Version and upgrade policy
 

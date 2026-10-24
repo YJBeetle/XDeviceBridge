@@ -77,6 +77,9 @@ including defaults, errors, states, lifetimes and examples. The baseline is not 
 Desktop CLI and SDK clients automatically start a background server when needed.
 The server remains running after the client exits and is reused by other clients.
 It listens only on loopback (default port 17423); local clients need no access token.
+It does not authenticate local processes or operating-system users. Any local
+process able to connect can control devices, access the clipboard and stop the server.
+Phone pairing does not distinguish those clients.
 
 ```sh
 # Starts the background server automatically.
