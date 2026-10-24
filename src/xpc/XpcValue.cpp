@@ -1,3 +1,4 @@
+#include "util/Bytes.h"
 #include "xpc/XpcValue.h"
 
 #include <algorithm>
@@ -46,18 +47,9 @@ std::string i64_to_string(int64_t v) {
 
 // ------------------------------------------------------------------ 写入 ------
 
-void put_u32(std::vector<uint8_t> &out, uint32_t v) {
-    out.push_back(static_cast<uint8_t>(v));
-    out.push_back(static_cast<uint8_t>(v >> 8));
-    out.push_back(static_cast<uint8_t>(v >> 16));
-    out.push_back(static_cast<uint8_t>(v >> 24));
-}
 
-void put_u64(std::vector<uint8_t> &out, uint64_t v) {
-    for (int i = 0; i < 8; ++i) {
-        out.push_back(static_cast<uint8_t>(v >> (8 * i)));
-    }
-}
+
+
 
 /// 相对本段起点 start 补零到 4 字节边界；嵌套段分别计算对齐。
 void align4(std::vector<uint8_t> &out, std::size_t start) {
@@ -77,30 +69,30 @@ bool encode_into(std::vector<uint8_t> &out, const Value &v, int depth) {
     if (depth > kMaxDepth) {
         return false;
     }
-    put_u32(out, static_cast<uint32_t>(v.type));
+    util::append_le32(out, static_cast<uint32_t>(v.type));
     switch (v.type) {
         case Type::Null:
             return true;
         case Type::Bool:
-            put_u32(out, v.boolean ? 1 : 0);
+            util::append_le32(out, v.boolean ? 1 : 0);
             return true;
         case Type::Int64:
-            put_u64(out, static_cast<uint64_t>(v.int64));
+            util::append_le64(out, static_cast<uint64_t>(v.int64));
             return true;
         case Type::UInt64:
         case Type::Date:
-            put_u64(out, v.uint64);
+            util::append_le64(out, v.uint64);
             return true;
         case Type::Double: {
             uint64_t bits = 0;
             std::memcpy(&bits, &v.real, sizeof(bits));
-            put_u64(out, bits);
+            util::append_le64(out, bits);
             return true;
         }
         case Type::String: {
             // 字符串长度包含末尾 NUL；Data 的长度只包含实际字节。
             const std::size_t start = out.size();
-            put_u32(out, static_cast<uint32_t>(v.string.size() + 1));
+            util::append_le32(out, static_cast<uint32_t>(v.string.size() + 1));
             out.insert(out.end(), v.string.begin(), v.string.end());
             out.push_back(0);
             align4(out, start);
@@ -108,7 +100,7 @@ bool encode_into(std::vector<uint8_t> &out, const Value &v, int depth) {
         }
         case Type::Data: {
             const std::size_t start = out.size();
-            put_u32(out, static_cast<uint32_t>(v.data.size()));
+            util::append_le32(out, static_cast<uint32_t>(v.data.size()));
             out.insert(out.end(), v.data.begin(), v.data.end());
             align4(out, start);
             return true;
@@ -121,7 +113,7 @@ bool encode_into(std::vector<uint8_t> &out, const Value &v, int depth) {
             return true;
         case Type::FileTransfer: {
             // 线上形态：u64 传输号 + 一个内层字典，字典里的 "s" 是字节数。
-            put_u64(out, v.transfer_id);
+            util::append_le64(out, v.transfer_id);
             auto meta = make_dict();
             dict_set(meta, "s", make_uint64(v.file_size));
             return encode_into(out, meta, depth + 1);
@@ -131,7 +123,7 @@ bool encode_into(std::vector<uint8_t> &out, const Value &v, int depth) {
             // 容器长度包含 count 字段和全部条目，不含类型标记及长度字段本身。
             // 先编码内容以确定该长度，再写入外层缓冲区。
             std::vector<uint8_t> content;
-            put_u32(content, static_cast<uint32_t>(v.type == Type::Array ? v.array.size()
+            util::append_le32(content, static_cast<uint32_t>(v.type == Type::Array ? v.array.size()
                                                                          : v.dict.size()));
             if (v.type == Type::Array) {
                 for (const auto &item : v.array) {
@@ -147,7 +139,7 @@ bool encode_into(std::vector<uint8_t> &out, const Value &v, int depth) {
                     }
                 }
             }
-            put_u32(out, static_cast<uint32_t>(content.size()));
+            util::append_le32(out, static_cast<uint32_t>(content.size()));
             out.insert(out.end(), content.begin(), content.end());
             return true;
         }
@@ -175,8 +167,7 @@ public:
         if (remaining() < 4) {
             return fail("u32 read out of bounds");
         }
-        v = static_cast<uint32_t>(p_[0]) | static_cast<uint32_t>(p_[1]) << 8 |
-            static_cast<uint32_t>(p_[2]) << 16 | static_cast<uint32_t>(p_[3]) << 24;
+        v = util::read_le32(p_);
         p_ += 4;
         return true;
     }
@@ -185,10 +176,7 @@ public:
         if (remaining() < 8) {
             return fail("u64 read out of bounds");
         }
-        v = 0;
-        for (int i = 0; i < 8; ++i) {
-            v |= static_cast<uint64_t>(p_[i]) << (8 * i);
-        }
+        v = util::read_le64(p_);
         p_ += 8;
         return true;
     }
@@ -592,16 +580,16 @@ std::vector<uint8_t> encode_message(uint32_t flags, uint64_t message_id, const V
         if (obj.empty()) {
             return {};
         }
-        put_u32(payload, kPayloadMagic);
-        put_u32(payload, kProtocolVersion);
+        util::append_le32(payload, kPayloadMagic);
+        util::append_le32(payload, kProtocolVersion);
         payload.insert(payload.end(), obj.begin(), obj.end());
     }
     std::vector<uint8_t> out;
-    put_u32(out, kWrapperMagic);
-    put_u32(out, flags);
+    util::append_le32(out, kWrapperMagic);
+    util::append_le32(out, flags);
     // 长度只包含载荷，不含信封中的 8 字节 message_id。
-    put_u64(out, static_cast<uint64_t>(payload.size()));
-    put_u64(out, message_id);
+    util::append_le64(out, static_cast<uint64_t>(payload.size()));
+    util::append_le64(out, message_id);
     out.insert(out.end(), payload.begin(), payload.end());
     return out;
 }
@@ -613,16 +601,12 @@ Status decode_message(std::span<const uint8_t> buf, Message &out, std::size_t &c
         err = "Envelope shorter than 24 bytes";
         return Status::NeedMore;
     }
-    const uint32_t magic = static_cast<uint32_t>(buf[0]) | static_cast<uint32_t>(buf[1]) << 8 |
-                           static_cast<uint32_t>(buf[2]) << 16 | static_cast<uint32_t>(buf[3]) << 24;
+    const uint32_t magic = util::read_le32(buf.data());
     if (magic != kWrapperMagic) {
         err = "Wrapper magic mismatch: 0x" + hex(magic);
         return Status::Malformed;
     }
-    uint64_t body_len = 0;
-    for (int i = 0; i < 8; ++i) {
-        body_len |= static_cast<uint64_t>(buf[8 + i]) << (8 * i);
-    }
+    const uint64_t body_len = util::read_le64(buf.data() + 8);
     if (body_len > kMaxBuffer) {
         err = "Invalid message length: " + u64_to_string(body_len);
         return Status::Malformed;
@@ -634,11 +618,8 @@ Status decode_message(std::span<const uint8_t> buf, Message &out, std::size_t &c
     }
 
     Message m;
-    m.flags = static_cast<uint32_t>(buf[4]) | static_cast<uint32_t>(buf[5]) << 8 |
-              static_cast<uint32_t>(buf[6]) << 16 | static_cast<uint32_t>(buf[7]) << 24;
-    for (int i = 0; i < 8; ++i) {
-        m.message_id |= static_cast<uint64_t>(buf[16 + i]) << (8 * i);
-    }
+    m.flags = util::read_le32(buf.data() + 4);
+    m.message_id = util::read_le64(buf.data() + 16);
     if (body_len > 0) {
         Reader r(buf.data() + 24, buf.data() + total);
         uint32_t pmagic = 0;

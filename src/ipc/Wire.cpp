@@ -1,3 +1,4 @@
+#include "util/Bytes.h"
 // SPDX-License-Identifier: LGPL-3.0-only
 #include "Wire.h"
 #include <array>
@@ -7,27 +8,16 @@
 #include <arpa/inet.h>
 #endif
 namespace xdb::ipc {
-namespace {
-uint32_t decode(const uint8_t *p) {
-    return (uint32_t(p[0]) << 24) | (uint32_t(p[1]) << 16) | (uint32_t(p[2]) << 8) | p[3];
-}
-void encode(uint8_t *p, uint32_t value) {
-    for (int i = 3; i >= 0; --i) {
-        p[i] = uint8_t(value);
-        value >>= 8;
-    }
-}
-} // namespace
 bool read(transport::Socket &socket, Message &out, std::string &error) {
     out = {};
     std::array<uint8_t, 16> header{};
     if (!socket.read_exact(header.data(), header.size(), error))
         return false;
-    if (std::memcmp(header.data(), frame_magic.data(), frame_magic.size()) != 0 || decode(header.data() + 4) != protocol_version) {
+    if (std::memcmp(header.data(), frame_magic.data(), frame_magic.size()) != 0 || util::read_be32(header.data() + 4) != protocol_version) {
         error = "unsupported xdb wire version";
         return false;
     }
-    const auto json_size = decode(header.data() + 8), binary_size = decode(header.data() + 12);
+    const auto json_size = util::read_be32(header.data() + 8), binary_size = util::read_be32(header.data() + 12);
     if (!json_size || json_size > max_json || binary_size > max_binary) {
         error = "xdb message exceeds size limit";
         return false;
@@ -44,9 +34,9 @@ bool write(transport::Socket &socket, const Message &message, std::string &error
     }
     std::array<uint8_t, 16> header{};
     std::memcpy(header.data(), frame_magic.data(), frame_magic.size());
-    encode(header.data() + 4, protocol_version);
-    encode(header.data() + 8, uint32_t(message.json.size()));
-    encode(header.data() + 12, uint32_t(message.binary.size()));
+    util::write_be32(header.data() + 4, protocol_version);
+    util::write_be32(header.data() + 8, uint32_t(message.json.size()));
+    util::write_be32(header.data() + 12, uint32_t(message.binary.size()));
     return socket.write_all(header.data(), header.size(), error) &&
            socket.write_all(message.json.data(), message.json.size(), error) &&
            (message.binary.empty() || socket.write_all(message.binary.data(), message.binary.size(), error));

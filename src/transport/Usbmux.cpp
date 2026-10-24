@@ -1,3 +1,4 @@
+#include "util/Bytes.h"
 #include "Usbmux.h"
 
 #include "transport/TcpConnect.h"
@@ -23,16 +24,9 @@ constexpr uint32_t kMaxPayload = 16u << 20;
 constexpr uint16_t kLockdownPort = 62078;
 constexpr const char *kClientName = "xdb";
 
-void put_u32_le(uint8_t *p, uint32_t v) {
-    p[0] = static_cast<uint8_t>(v);
-    p[1] = static_cast<uint8_t>(v >> 8);
-    p[2] = static_cast<uint8_t>(v >> 16);
-    p[3] = static_cast<uint8_t>(v >> 24);
-}
 
-uint32_t get_u32_le(const uint8_t *p) {
-    return uint32_t(p[0]) | uint32_t(p[1]) << 8 | uint32_t(p[2]) << 16 | uint32_t(p[3]) << 24;
-}
+
+
 
 plist::Value base_request(std::string_view type) {
     plist::Value v = plist::Value::Dict();
@@ -196,14 +190,14 @@ UsbmuxDiscoveryStatus detail::list_usbmux_devices_at(
     std::string body = plist::write(base_request("ListDevices"));
     body.push_back('\0');
     uint8_t header[kHeaderLen];
-    put_u32_le(header, static_cast<uint32_t>(kHeaderLen + body.size()));
-    put_u32_le(header + 4, kProtoVersion);
-    put_u32_le(header + 8, kMsgPlist);
-    put_u32_le(header + 12, 1);
+    util::write_le32(header, static_cast<uint32_t>(kHeaderLen + body.size()));
+    util::write_le32(header + 4, kProtoVersion);
+    util::write_le32(header + 8, kMsgPlist);
+    util::write_le32(header + 12, 1);
     if (!budget.transfer(fd, header, sizeof(header), true, err) ||
         !budget.transfer(fd, body.data(), body.size(), true, err) ||
         !budget.transfer(fd, header, sizeof(header), false, err)) return budget.status;
-    const uint32_t total = get_u32_le(header);
+    const uint32_t total = util::read_le32(header);
     if (total < kHeaderLen || total - kHeaderLen > kMaxPayload) {
         err = "Invalid mux frame length: " + std::to_string(total);
         return UsbmuxDiscoveryStatus::unavailable;
@@ -347,12 +341,12 @@ bool Usbmux::round_trip_for_service(const plist::Value &req, plist::Value &reply
     }
     auto body = plist::write(req); body += '\0';
     uint8_t header[kHeaderLen];
-    put_u32_le(header, static_cast<uint32_t>(kHeaderLen + body.size()));
-    put_u32_le(header + 4, kProtoVersion); put_u32_le(header + 8, kMsgPlist); put_u32_le(header + 12, tag_++);
+    util::write_le32(header, static_cast<uint32_t>(kHeaderLen + body.size()));
+    util::write_le32(header + 4, kProtoVersion); util::write_le32(header + 8, kMsgPlist); util::write_le32(header + 12, tag_++);
     if (!budget.transfer(fd, header, sizeof(header), true, err) ||
         !budget.transfer(fd, body.data(), body.size(), true, err) ||
         !budget.transfer(fd, header, sizeof(header), false, err)) return fail();
-    const auto total = get_u32_le(header);
+    const auto total = util::read_le32(header);
     if (total < kHeaderLen || total - kHeaderLen > kMaxPayload) {
         err = "Invalid mux frame length: " + std::to_string(total); return fail();
     }
@@ -418,10 +412,10 @@ bool Usbmux::round_trip(const plist::Value &request, plist::Value &reply, std::s
     body.push_back('\0');
 
     uint8_t hdr[kHeaderLen];
-    put_u32_le(hdr, static_cast<uint32_t>(kHeaderLen + body.size()));
-    put_u32_le(hdr + 4, kProtoVersion);
-    put_u32_le(hdr + 8, kMsgPlist);
-    put_u32_le(hdr + 12, tag_);
+    util::write_le32(hdr, static_cast<uint32_t>(kHeaderLen + body.size()));
+    util::write_le32(hdr + 4, kProtoVersion);
+    util::write_le32(hdr + 8, kMsgPlist);
+    util::write_le32(hdr + 12, tag_);
     if (!sock_.write_all(hdr, kHeaderLen, err)) {
         return false;
     }
@@ -434,7 +428,7 @@ bool Usbmux::round_trip(const plist::Value &request, plist::Value &reply, std::s
     if (!sock_.read_exact(rhdr, kHeaderLen, err)) {
         return false;
     }
-    const uint32_t total = get_u32_le(rhdr);
+    const uint32_t total = util::read_le32(rhdr);
     // 上限必须有，且不能只判下界：total 是对方给的 32 位数，只挡 `< kHeaderLen`
     // 的话，一个 0xFFFFFFFF 就会让我们先去申请 4GB 内存——那是 DoS，不是解析失败。
     // usbmuxd 的回复实际是 KB 级（设备列表、配对记录），16MB 已经宽到没边。

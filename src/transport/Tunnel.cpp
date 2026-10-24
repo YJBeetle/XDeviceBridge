@@ -1,3 +1,4 @@
+#include "util/Bytes.h"
 #include "Tunnel.h"
 
 #include <cstring>
@@ -15,14 +16,9 @@ constexpr size_t kControlHeaderLen = 10;  // magic(8) + u16 长度
 constexpr size_t kIpv6HeaderLen = 40;
 constexpr uint16_t kRequestedMtu = 16000;  // 与参考实现的 TCP 隧道一致
 
-void put_be16(uint8_t *p, uint16_t v) {
-    p[0] = static_cast<uint8_t>(v >> 8);
-    p[1] = static_cast<uint8_t>(v);
-}
 
-uint16_t get_be16(const uint8_t *p) {
-    return static_cast<uint16_t>(uint16_t(p[0]) << 8 | p[1]);
-}
+
+
 
 // SSL_get_error depends on the calling thread's error queue. Start each I/O
 // with a clean queue and native error state, then capture both before formatting
@@ -182,7 +178,7 @@ bool PacketTunnel::client_handshake(std::string &err) {
 
     std::vector<uint8_t> frame(kControlHeaderLen + body.size());
     std::memcpy(frame.data(), kMagic.data(), kMagic.size());
-    put_be16(frame.data() + 8, static_cast<uint16_t>(body.size()));
+    util::write_be16(frame.data() + 8, static_cast<uint16_t>(body.size()));
     std::memcpy(frame.data() + kControlHeaderLen, body.data(), body.size());
     if (!write_all(frame.data(), frame.size(), err)) {
         return false;
@@ -196,7 +192,7 @@ bool PacketTunnel::client_handshake(std::string &err) {
         err = "Tunnel handshake response has incorrect magic";
         return false;
     }
-    const uint16_t payload_len = get_be16(hdr + 8);
+    const uint16_t payload_len = util::read_be16(hdr + 8);
     std::vector<uint8_t> payload(payload_len);
     if (!payload.empty() && !read_all(payload.data(), payload.size(), err)) {
         return false;
@@ -259,7 +255,7 @@ bool PacketTunnel::recv_ipv6(std::vector<uint8_t> &out, std::string &err) {
         err = "Tunnel packet is not IPv6: version nibble=" + std::to_string(hdr[0] >> 4);
         return false;
     }
-    const size_t total = kIpv6HeaderLen + get_be16(hdr + 4);
+    const size_t total = kIpv6HeaderLen + util::read_be16(hdr + 4);
     out.resize(total);
     std::memcpy(out.data(), hdr, kIpv6HeaderLen);
     return read_all(out.data() + kIpv6HeaderLen, total - kIpv6HeaderLen, err);

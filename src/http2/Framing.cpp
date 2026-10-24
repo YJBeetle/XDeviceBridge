@@ -10,17 +10,9 @@ namespace {
 
 constexpr uint32_t kStreamIdMask = 0x7FFFFFFF;
 
-void put_u16(std::vector<uint8_t> &out, uint16_t v) {
-    out.push_back(static_cast<uint8_t>(v >> 8));
-    out.push_back(static_cast<uint8_t>(v));
-}
 
-void put_u32(std::vector<uint8_t> &out, uint32_t v) {
-    out.push_back(static_cast<uint8_t>(v >> 24));
-    out.push_back(static_cast<uint8_t>(v >> 16));
-    out.push_back(static_cast<uint8_t>(v >> 8));
-    out.push_back(static_cast<uint8_t>(v));
-}
+
+
 
 
 
@@ -91,7 +83,7 @@ std::vector<uint8_t> serialize(uint8_t type, uint8_t flags, uint32_t stream_id,
     out.push_back(static_cast<uint8_t>(len));
     out.push_back(type);
     out.push_back(flags);
-    put_u32(out, stream_id & kStreamIdMask);
+    util::append_be32(out, stream_id & kStreamIdMask);
     out.insert(out.end(), payload.begin(), payload.end());
     return out;
 }
@@ -100,8 +92,8 @@ std::vector<uint8_t> settings_frame(const std::vector<std::pair<uint16_t, uint32
     std::vector<uint8_t> body;
     body.reserve(settings.size() * 6);
     for (const auto &[id, value] : settings) {
-        put_u16(body, id);
-        put_u32(body, value);
+        util::append_be16(body, id);
+        util::append_be32(body, value);
     }
     return serialize(kSettings, 0, 0, body);
 }
@@ -110,7 +102,7 @@ std::vector<uint8_t> settings_ack_frame() { return serialize(kSettings, kFlagAck
 
 std::vector<uint8_t> window_update_frame(uint32_t stream_id, uint32_t increment) {
     std::vector<uint8_t> body;
-    put_u32(body, increment);
+    util::append_be32(body, increment);
     return serialize(kWindowUpdate, 0, stream_id, body);
 }
 

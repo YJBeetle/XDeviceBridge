@@ -1,3 +1,4 @@
+#include "util/Bytes.h"
 #include "wifi/Opack.h"
 
 #include <cstdio>
@@ -10,21 +11,11 @@ constexpr uint8_t kTerminator = 0x03;
 
 void put_u8(Bytes &out, uint8_t v) { out.push_back(v); }
 
-void put_u16_be(Bytes &out, uint16_t v) {
-    out.push_back(static_cast<uint8_t>(v >> 8));
-    out.push_back(static_cast<uint8_t>(v));
-}
 
-void put_u32_be(Bytes &out, uint32_t v) {
-    put_u16_be(out, static_cast<uint16_t>(v >> 16));
-    put_u16_be(out, static_cast<uint16_t>(v));
-}
 
-void put_le(Bytes &out, uint64_t v, int width) {
-    for (int i = 0; i < width; ++i) {
-        out.push_back(static_cast<uint8_t>(v >> (8 * i)));
-    }
-}
+
+
+
 
 bool read_u8(const Bytes &in, size_t &pos, uint8_t &v) {
     if (pos >= in.size()) {
@@ -38,10 +29,8 @@ bool read_be(const Bytes &in, size_t &pos, int width, uint64_t &v) {
     if (pos > in.size() || static_cast<size_t>(width) > in.size() - pos) {
         return false;
     }
-    v = 0;
-    for (int i = 0; i < width; ++i) {
-        v = (v << 8) | in[pos++];
-    }
+    v = util::read_be(in.data() + pos, width);
+    pos += static_cast<size_t>(width);
     return true;
 }
 
@@ -49,10 +38,7 @@ bool read_le(const Bytes &in, size_t &pos, int width, uint64_t &v) {
     if (pos > in.size() || static_cast<size_t>(width) > in.size() - pos) {
         return false;
     }
-    v = 0;
-    for (int i = width - 1; i >= 0; --i) {
-        v = (v << 8) | in[pos + static_cast<size_t>(i)];
-    }
+    v = util::read_le(in.data() + pos, width);
     pos += static_cast<size_t>(width);
     return true;
 }
@@ -68,10 +54,10 @@ bool encode_lengthed(Bytes &out, uint8_t short_base, uint8_t l1, uint8_t l2, uin
         put_u8(out, static_cast<uint8_t>(len));
     } else if (len <= 0xFFFF) {
         put_u8(out, l2);
-        put_u16_be(out, static_cast<uint16_t>(len));
+        util::append_be16(out, static_cast<uint16_t>(len));
     } else if (len < 0x100000000ULL) {
         put_u8(out, l4);
-        put_u32_be(out, static_cast<uint32_t>(len));
+        util::append_be32(out, static_cast<uint32_t>(len));
     } else {
         return false;
     }
@@ -95,13 +81,13 @@ bool encode_one(const OpackValue &v, Bytes &out, std::string &err) {
             put_u8(out, static_cast<uint8_t>(8 + u));
         } else if (u <= 0xFF) {
             put_u8(out, 0x30);
-            put_le(out, u, 1);
+            util::append_le(out, u, 1);
         } else if (u <= 0xFFFFFFFFULL) {
             put_u8(out, 0x32);
-            put_le(out, u, 4);
+            util::append_le(out, u, 4);
         } else {
             put_u8(out, 0x33);
-            put_le(out, u, 8);
+            util::append_le(out, u, 8);
         }
         return true;
     }
