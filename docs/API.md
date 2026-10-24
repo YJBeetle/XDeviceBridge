@@ -428,6 +428,11 @@ error is separate so a consumer can continue mirroring when saving fails.
 
 ### `media.finish`
 
+Stopping a media pump cancels its recovery/status RPC waits before joining.
+Device stop RPC cleanup has a two-second total budget, including connection
+setup; timeout may leave the device stream until its RTCP lease expires.
+This does not impose a total deadline on disk finalization or decoding.
+
 Session required. No params; result `{}` or `operation_failed`. Stops receiving,
 joins video recording, finalizes the recorder, then stops audio and resets the
 media objects. Shared attachments see the stopped state. Prefer this before
