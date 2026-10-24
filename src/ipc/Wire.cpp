@@ -23,7 +23,7 @@ bool read(transport::Socket &socket, Message &out, std::string &error) {
     std::array<uint8_t, 16> header{};
     if (!socket.read_exact(header.data(), header.size(), error))
         return false;
-    if (std::memcmp(header.data(), "XDB1", 4) != 0 || decode(header.data() + 4) != protocol_version) {
+    if (std::memcmp(header.data(), frame_magic.data(), frame_magic.size()) != 0 || decode(header.data() + 4) != protocol_version) {
         error = "unsupported xdb wire version";
         return false;
     }
@@ -43,7 +43,7 @@ bool write(transport::Socket &socket, const Message &message, std::string &error
         return false;
     }
     std::array<uint8_t, 16> header{};
-    std::memcpy(header.data(), "XDB1", 4);
+    std::memcpy(header.data(), frame_magic.data(), frame_magic.size());
     encode(header.data() + 4, protocol_version);
     encode(header.data() + 8, uint32_t(message.json.size()));
     encode(header.data() + 12, uint32_t(message.binary.size()));

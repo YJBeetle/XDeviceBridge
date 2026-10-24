@@ -3,9 +3,11 @@
 #include "transport/Socket.h"
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 namespace xdb::ipc {
 inline constexpr uint32_t protocol_version = 1;
+inline constexpr std::string_view frame_magic = "XDB1";
 inline constexpr size_t max_json = 1024 * 1024;
 inline constexpr size_t max_binary = 64 * 1024 * 1024;
 struct Message {

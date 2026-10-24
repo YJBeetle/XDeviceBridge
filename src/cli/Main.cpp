@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 #include "ipc/Json.h"
+#include "ipc/Wire.h"
 #include "xdb/xdb.h"
 #include <chrono>
 #include <csignal>
@@ -142,7 +143,7 @@ int main(int argc, char **argv) {
             std::signal(SIGINT, stop);
             std::signal(SIGTERM, stop);
             std::cout << Json{{"ready", true},
-                              {"protocol", 1},
+                              {"protocol", xdb::ipc::protocol_version},
                               {"host", "127.0.0.1"},
                               {"port", xdb_server_port(server)}}
                              .dump()
