@@ -96,7 +96,7 @@ C 符号所有权、线程和接口参考见 [C_API_zh.md](C_API_zh.md)。
 | `connection.open` | `udid`，可选 `wifi`：auto/地址，`port`：设备端口 | 获取连接持有的会话 |
 | `connection.close` | 无 | 释放服务、输入和设备租约 |
 | `device.info` | 无 | 设备 UDID、系统版本、型号 |
-| `screenshot` | 无 | `format: png`；原始 PNG 正文 |
+| `screenshot` | 可选 `format`：png/bgra（默认 png） | PNG 正文或解码后的 BGRA 像素，附显示几何 |
 | `video.start` | 可选 `hardware_decode` | 启动后台最新帧采集 |
 | `video.frame` | `since`：帧序号，`timeout_ms`：0..1000 | BGRA 格式、序号、宽高、行跨度、可选显示几何；原始像素 |
 | `video.stop` | 无 | 停止视频 pump |

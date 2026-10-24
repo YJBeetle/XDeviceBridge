@@ -103,7 +103,7 @@ is a quick summary rather than the full method contract.
 | `connection.open` | `udid`, optional `wifi`: auto/address, `port`: device port | Acquires a connection-owned session |
 | `connection.close` | none | Releases services, inputs and device lease |
 | `device.info` | none | Device UDID, OS version, model |
-| `screenshot` | none | `format: png`; raw PNG body |
+| `screenshot` | optional `format`: png/bgra (default png) | PNG body or decoded BGRA pixels, with display geometry |
 | `video.start` | optional `hardware_decode` | Starts background latest-frame capture |
 | `video.frame` | `since`: frame serial, `timeout_ms`: 0..1000 | Format BGRA, serial, width, height, row pitch, optional display geometry; raw pixels |
 | `video.stop` | none | Stops the video pump |
