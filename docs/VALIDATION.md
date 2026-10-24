@@ -78,7 +78,7 @@ The initial implementation was checked locally on macOS:
 
 Android arm64 client/server builds are cross-compilation checks, not application
 or physical-device acceptance. They use Android API 24 and target-built dependencies.
-No new successful physical-device behavior is implied by the scrctl source origin.
+These initial checks do not imply successful physical-device acceptance.
 
 Before a stable release: complete physical-device acceptance for fresh pairing
 and Android application packaging/lifecycle. DDI replacement below covers one

@@ -1,5 +1,7 @@
 # xdb local protocol (experimental version 1)
 
+English | [简体中文](PROTOCOL_zh.md)
+
 This is the **client-to-host-server protocol**, not Apple's device protocol.
 The server listens only on IPv4 loopback and accepts local clients without
 authentication. Loopback limits direct network access; it does not authenticate

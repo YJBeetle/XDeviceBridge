@@ -91,7 +91,7 @@ def main():
         # A separate process releases all ctypes DLL handles before Windows cleanup.
         subprocess.run([sys.executable, str(Path(__file__).resolve()), '--probe',
                         str(relocated), str(temporary)], check=True, timeout=60)
-        for document in ('INSTALL.md', 'INSTALL_zh.md', 'ANDROID.md'):
+        for document in ('INSTALL.md', 'INSTALL_zh.md', 'ANDROID.md', 'ANDROID_zh.md'):
             assert (relocated / document).is_file(), document
         assert not list(relocated.rglob('CMakeCache.txt'))
         assert not list(relocated.rglob('*.a'))

@@ -1,5 +1,7 @@
 # Android host integration
 
+English | [简体中文](ANDROID_zh.md)
+
 ## Recommended initial model
 
 ```text

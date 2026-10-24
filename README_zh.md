@@ -72,10 +72,10 @@ cmake -S . -B build-client -DXDB_BUILD_SERVER=OFF -DXDB_BUILD_CLI=OFF
 cmake --build build-client
 ```
 
-NDK 和内嵌服务端的接入方式见 [Android 集成说明](docs/ANDROID.md)。
-C ABI 定义位于 [xdb.h](include/xdb/xdb.h)，通信协议见 [PROTOCOL.md](docs/PROTOCOL.md)。
+NDK 和内嵌服务端的接入方式见 [Android 集成说明](docs/ANDROID_zh.md)。
+C ABI 定义位于 [xdb.h](include/xdb/xdb.h)，通信协议见[通信协议说明](docs/PROTOCOL_zh.md)。
 
-面向 1.0 的完整参考见 [RPC API](docs/API.md) 与 [C SDK](docs/C_API.md)，
+面向 1.0 的完整参考见 [RPC API](docs/API_zh.md) 与 [C SDK](docs/C_API_zh.md)，
 包括字段、默认值、错误码、状态前提、内存所有权、并发取消规则和示例。
 这是待评审的接口基线，尚未宣称 1.0 已发布或接口已冻结。
 
@@ -153,7 +153,7 @@ Android 初期支持 Wi-Fi，尚未实现 Android USB Host 接入。
 
 ## 许可证
 
-项目自有代码采用 **LGPL-3.0-only**，已获得版权所有者授权。
+项目自有代码采用 **LGPL-3.0-only**。
 参见 [LICENSE](LICENSE) 和 [COPYING.GPLv3](COPYING.GPLv3)。
 第三方组件保留原许可证；分发二进制的许可条件还取决于实际依赖构建，尤其是 FFmpeg。
-详见[第三方组件说明](THIRD_PARTY_NOTICES.md)和[源码来源](docs/ORIGIN.md)。
+详见[第三方组件说明](THIRD_PARTY_NOTICES.md)。

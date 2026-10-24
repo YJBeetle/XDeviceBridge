@@ -45,7 +45,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 mkdir "$stage"
-for item in bin lib share INSTALL.md INSTALL_zh.md ANDROID.md install.sh; do
+for item in bin lib share INSTALL.md INSTALL_zh.md ANDROID.md ANDROID_zh.md install.sh; do
     [ ! -e "$source_dir/$item" ] || cp -R "$source_dir/$item" "$stage/"
 done
 : > "$stage/.xdb-install"

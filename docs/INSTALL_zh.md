@@ -62,7 +62,7 @@ export XDB_EXECUTABLE="$HOME/.local/opt/xdb/bin/xdb"
 ```
 
 下游应用也可以随客户端库一起分发完整运行包，保留同样的 `bin/` 和 `lib/` 布局，
-并保留依赖许可证。Android 使用 [Android 集成说明](ANDROID.md)中的内嵌 Server
+并保留依赖许可证。Android 使用 [Android 集成说明](ANDROID_zh.md)中的内嵌 Server
 方式，桌面安装包不是 Android 应用安装包。
 
 更新由 install.sh 管理的安装时，直接在新包中执行同样的安装命令即可：脚本先在同一

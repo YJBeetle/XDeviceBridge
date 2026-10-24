@@ -1,5 +1,7 @@
 # XDB C SDK reference — 1.0 preparation
 
+English | [简体中文](C_API_zh.md)
+
 The exported header is [xdb.h](../include/xdb/xdb.h). This reference describes its
 current implementation; API freeze is still a release decision. RPC parameters
 and results are specified in [API.md](API.md), framing/version policy in

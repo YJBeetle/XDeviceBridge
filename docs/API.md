@@ -1,5 +1,7 @@
 # XDB API reference — 1.0 preparation
 
+English | [简体中文](API_zh.md)
+
 This document describes the current implementation, checked against `xdb.h`,
 `Client.cpp`, `Server.cpp`, `Backend.cpp` and `Discovery.h`. It is the reviewable
 baseline for 1.0, **not a declaration that 1.0 has shipped or the API is frozen**.

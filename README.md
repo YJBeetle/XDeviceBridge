@@ -154,8 +154,7 @@ raw requests. `rpc-shell` maintains a client session; it is not an iOS command s
 
 ## License
 
-Project-owned code is licensed under **LGPL-3.0-only**, as authorized by its copyright
-owner. See [LICENSE](LICENSE) and [COPYING.GPLv3](COPYING.GPLv3).
+Project-owned code is licensed under **LGPL-3.0-only**. See [LICENSE](LICENSE) and [COPYING.GPLv3](COPYING.GPLv3).
 Third-party components retain their own licenses; the license of a distributed binary
 also depends on its exact dependency build, especially FFmpeg.
-See [third-party components](THIRD_PARTY_NOTICES.md) and [source origin](docs/ORIGIN.md).
+See [third-party components](THIRD_PARTY_NOTICES.md).

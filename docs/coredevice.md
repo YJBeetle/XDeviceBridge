@@ -1,8 +1,8 @@
-> Imported scrctl protocol research at the source commit documented in ORIGIN.md. Historical commands refer to that project, not xdb CLI.
+> 历史 CoreDevice/DDI 协议研究记录。文中的历史命令不代表当前 xdb CLI；当前接口见[通信协议](PROTOCOL_zh.md)。
 
 # CoreDevice / DDI 机制调研
 
-scrctl 立项前的验证记录。目标：确认能否在**不越狱、不装 WDA、不要 root、不依赖 Xcode GUI** 的前提下，从 Mac 对 iPhone 做屏幕采集 + 触摸注入。
+早期设备协议验证记录。目标：确认能否在**不越狱、不装 WDA、不要 root、不依赖 Xcode GUI** 的前提下，从 Mac 对 iPhone 做屏幕采集 + 触摸注入。
 
 结论：**可以，且已端到端跑通。**
 
