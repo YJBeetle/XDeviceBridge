@@ -162,6 +162,9 @@ Reply Backend::handle(const std::string &method, const Json &p, const Event &eve
         return handle_management(method, p, event, cancel);
     if (method == "connection.close" || method == "connection.attach" || method == "connection.open")
         return handle_connection(method, p, cancel);
+    if (method.starts_with("input.") && method != "input.text" && method != "input.tap" &&
+        method != "input.touch" && method != "input.keyboard" && method != "input.button")
+        return Reply::failure("unknown_method", "Unknown method: " + method);
     if (!session_)
         return Reply::failure("not_connected", "Open a device session first");
     auto &s = *session_;

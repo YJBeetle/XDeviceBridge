@@ -92,6 +92,11 @@ with tempfile.TemporaryDirectory(prefix='xdb-ipc-') as tmp:
             assert client.xdb_client_server_version(c).decode() == info['version']
             unknown = request(c,'future.optional.method')
             assert not unknown['ok'] and unknown['error']['code']=='not_connected'
+            for method in ('input.not_a_method', 'input.keyboard.future'):
+                unknown_input = request(c, method, {'text': None})
+                assert not unknown_input['ok'] and unknown_input['error']['code'] == 'unknown_method', unknown_input
+            assert request(c, 'server.info')['ok'], 'rejecting unknown input must retain the RPC connection'
+
             assert request(c,'server.info',{'future_optional_field':True})['ok']
             os.environ['XDB_PORT'] = str(port)
             default_client = client.xdb_client_connect(0,None,None)
