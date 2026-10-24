@@ -1,4 +1,5 @@
 #include "util/Hex.h"
+#include "util/DataDirectory.h"
 #include "wifi/PairRecord.h"
 
 #include <algorithm>
@@ -288,16 +289,7 @@ std::optional<PairRecord> load_record(const std::string &path, std::string &err)
 }
 
 std::string default_record_dir() {
-    const char *xdg = std::getenv("XDG_DATA_HOME");
-    if (xdg != nullptr && *xdg != '\0') {
-        return std::string(xdg) + "/xdb";
-    }
-#ifdef _WIN32
-    if (const char *local = std::getenv("LOCALAPPDATA"); local && *local)
-        return (std::filesystem::path(local) / "xdb").string();
-#endif
-    const char *home = std::getenv("HOME");
-    return std::string(home != nullptr ? home : ".") + "/.local/share/xdb";
+    return util::default_data_directory();
 }
 
 std::string record_path(const std::string &dir, const std::string &udid) {

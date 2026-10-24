@@ -123,6 +123,9 @@ USB 枚举成功也不代表已获得信任。无法识别身份的设备显示�
 停止 Server 并取消其会话。Server 不存在时，`kill-server` 直接成功，不会将其启动。
 `xdb server` 可用于前台诊断。
 
+默认配对数据目录：macOS 为 `~/Library/Application Support/XDeviceBridge`，
+Windows 为 `%LOCALAPPDATA%/XDeviceBridge`，Linux 为
+`${XDG_DATA_HOME:-~/.local/share}/XDeviceBridge`。CLI 与底层配对的默认规则一致。
 `--data-dir /absolute/path` 在启动新 Server 时指定数据目录，不会改变已有 Server
 使用的目录。默认采用平台用户数据目录。`start-server` / `kill-server` 需要固定端口；
 诊断时可用 `server --port 0` 自动分配临时端口。

@@ -121,7 +121,10 @@ require explicit selection; an unidentified device must be paired first.
 Use `xdb start-server` to start or reuse the background server explicitly and
 `xdb kill-server` to stop it, cancelling its sessions. Killing an absent server
 succeeds without starting one. `xdb server` remains available for foreground
-diagnostics. `--data-dir /absolute/path` selects a store when starting a new
+diagnostics. Default pairing data is stored in `~/Library/Application Support/XDeviceBridge`
+on macOS, `%LOCALAPPDATA%/XDeviceBridge` on Windows, and
+`${XDG_DATA_HOME:-~/.local/share}/XDeviceBridge` on Linux. The CLI and low-level
+pairing defaults share this rule. `--data-dir /absolute/path` selects a store when starting a new
 server; it never changes a running server's store. The default is the platform
 user data directory. `start-server` / `kill-server` require a fixed port;
 `server --port 0` can select an ephemeral port for diagnostics.

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 #include "ipc/Json.h"
+#include "util/DataDirectory.h"
 #include "ipc/Wire.h"
 #include "xdb/xdb.h"
 #include <chrono>
@@ -28,21 +29,6 @@ void event(const char *message, void *) {
         std::cerr << data["message"].get<std::string>() << '\n';
     else
         std::cerr << data.dump() << '\n';
-}
-std::filesystem::path data_directory() {
-#ifdef _WIN32
-    if (*env("LOCALAPPDATA"))
-        return std::filesystem::u8path(env("LOCALAPPDATA")) / "XDeviceBridge";
-#elif defined(__APPLE__)
-    if (*env("HOME"))
-        return std::filesystem::path(env("HOME")) / "Library" / "Application Support" / "XDeviceBridge";
-#else
-    if (*env("XDG_DATA_HOME"))
-        return std::filesystem::path(env("XDG_DATA_HOME")) / "XDeviceBridge";
-    if (*env("HOME"))
-        return std::filesystem::path(env("HOME")) / ".local" / "share" / "XDeviceBridge";
-#endif
-    throw std::invalid_argument("Cannot locate user data directory; supply --data-dir");
 }
 int number(const std::string &value, int minimum, int maximum) {
     size_t used = 0;
@@ -133,7 +119,7 @@ int main(int argc, char **argv) {
             if (args.size() != 1)
                 throw std::invalid_argument("Unexpected server argument");
             if (dir.empty())
-                dir = data_directory().string();
+                dir = xdb::util::default_data_directory();
             auto *server = xdb_server_start(port, dir.c_str());
             if (!server) {
                 std::cerr << xdb_server_last_error() << '\n';

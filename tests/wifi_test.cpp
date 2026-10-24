@@ -9,6 +9,8 @@
 // 发到设备上。
 #include <array>
 #include <cstdint>
+#include <cstdlib>
+#include <optional>
 #include <cstdio>
 #include <exception>
 #include <filesystem>
@@ -394,6 +396,53 @@ void test_srp() {
           "SRP succeeds after failed retry and clears old error");
 }
 
+
+void test_default_record_directory() {
+    struct Environment {
+        const char *name;
+        std::optional<std::string> previous;
+        explicit Environment(const char *key) : name(key) {
+            if (const char *value = std::getenv(name)) previous = value;
+        }
+        void set(const char *value) {
+#ifdef _WIN32
+            _putenv_s(name, value ? value : "");
+#else
+            if (value) setenv(name, value, 1); else unsetenv(name);
+#endif
+        }
+        ~Environment() { set(previous ? previous->c_str() : nullptr); }
+    } home("HOME"), xdg("XDG_DATA_HOME"), local("LOCALAPPDATA");
+#ifdef _WIN32
+    const std::string root = "C:/xdb data";
+#else
+    const std::string root = "/tmp/xdb data";
+#endif
+    home.set((root + "/home").c_str());
+    xdg.set((root + "/xdg").c_str());
+    local.set((root + "/local").c_str());
+    const auto normalized = [](const std::string &value) {
+        return std::filesystem::path(std::u8string(value.begin(), value.end())).lexically_normal().generic_u8string();
+    };
+#ifdef _WIN32
+    const auto expected = root + "/local/XDeviceBridge";
+#elif defined(__APPLE__)
+    const auto expected = root + "/home/Library/Application Support/XDeviceBridge";
+#else
+    const auto expected = root + "/xdg/XDeviceBridge";
+#endif
+    check(normalized(xdb::wifi::default_record_dir()) == normalized(expected),
+          "pairing defaults use the same platform directory as the CLI");
+#if !defined(_WIN32) && !defined(__APPLE__)
+    xdg.set(nullptr);
+    check(normalized(xdb::wifi::default_record_dir()) == normalized(root + "/home/.local/share/XDeviceBridge"),
+          "Linux falls back to HOME when XDG_DATA_HOME is absent");
+#endif
+    home.set(nullptr); xdg.set(nullptr); local.set(nullptr);
+    bool rejected = false;
+    try { (void)xdb::wifi::default_record_dir(); } catch (const std::invalid_argument &) { rejected = true; }
+    check(rejected, "missing user directory cannot silently select the current working directory");
+}
 
 /// ---- 1c. OPACK ----
 void test_opack() {
@@ -1370,6 +1419,7 @@ void test_pairing_xpc() {
 }  // namespace
 
 int main() {
+    test_default_record_directory();
     test_crypto();
     test_ed25519_verify();
     test_srp();
