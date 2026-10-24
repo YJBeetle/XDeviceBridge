@@ -1,4 +1,3 @@
-#include "i18n/Translation.h"
 #include "remote/PairingChannel.h"
 
 #include <cstdio>
@@ -56,7 +55,7 @@ bool to_xpc(const json::Value &value, std::string_view key, std::string_view par
                 return true;
             }
             if (value.get<uint64_t>() > static_cast<uint64_t>(INT64_MAX)) {
-                err = XDB_TR("JSON integer exceeds XPC int64 range");
+                err = "JSON integer exceeds XPC int64 range";
                 return false;
             }
             [[fallthrough]];
@@ -72,7 +71,7 @@ bool to_xpc(const json::Value &value, std::string_view key, std::string_view par
             }
             const auto bytes = wifi::b64_decode(value.get_ref<const std::string &>(), err);
             if (!bytes) {
-                err = XDB_TR("Field ") + std::string(key) + XDB_TR(" must contain base64 binary data; decode failed: ") + err;
+                err = "Field " + std::string(key) + " must contain base64 binary data; decode failed: " + err;
                 return false;
             }
             out = xpc::make_data(std::move(*bytes));
@@ -93,7 +92,7 @@ bool to_xpc(const json::Value &value, std::string_view key, std::string_view par
             return true;
         default: break;
     }
-    err = XDB_TR("Unknown JSON value type");
+    err = "Unknown JSON value type";
     return false;
 }
 
@@ -148,7 +147,7 @@ bool from_xpc(const xpc::Value &value, json::Value &out, std::string &err) {
             // 设备的 peerDeviceInfo.identifier 在字节流载体上是字符串，在这边可能是
             // UUID 对象。还原成同样的 8-4-4-4-12 文本，上层读到的才是同一个东西。
             if (value.data.size() != 16) {
-                err = XDB_TR("UUID field must contain 16 bytes");
+                err = "UUID field must contain 16 bytes";
                 return false;
             }
             out = wifi::j_str(uuid_text(value.data));
@@ -174,10 +173,10 @@ bool from_xpc(const xpc::Value &value, json::Value &out, std::string &err) {
             }
             return true;
         case xpc::Type::FileTransfer:
-            err = XDB_TR("File transfer placeholder is not supported on the pairing channel");
+            err = "File transfer placeholder is not supported on the pairing channel";
             return false;
     }
-    err = XDB_TR("Unknown XPC type marker");
+    err = "Unknown XPC type marker";
     return false;
 }
 
@@ -216,16 +215,16 @@ bool XpcPairingCarrier::wait_one(int ms, xpc::Value &out, std::string &err) {
             return true;
         case Channel::Wait::Timeout:
             if (err.empty()) {
-                err = XDB_TR("Pairing reply timed out (") + std::to_string(ms) + XDB_TR(" ms without device data)");
+                err = "Pairing reply timed out (" + std::to_string(ms) + " ms without device data)";
             }
             return false;
         case Channel::Wait::Broken:
             if (err.empty()) {
-                err = XDB_TR("Pairing control channel disconnected");
+                err = "Pairing control channel disconnected";
             }
             return false;
     }
-    err = XDB_TR("Pairing control channel disconnected");
+    err = "Pairing control channel disconnected";
     return false;
 }
 
@@ -239,8 +238,8 @@ std::optional<json::Value> XpcPairingCarrier::read_envelope(std::string &err) {
     }
     const xpc::Value *value = body.find("value");
     if (value == nullptr) {
-        err = XDB_TR("Channel received unexpected type; expected ") + std::string(kPairingEnvelopeType) +
-              XDB_TR(" (value field missing): ") + xpc::describe(body).substr(0, 400);
+        err = "Channel received unexpected type; expected " + std::string(kPairingEnvelopeType) +
+              " (value field missing): " + xpc::describe(body).substr(0, 400);
         return std::nullopt;
     }
     return xpc_to_json(*value, err);

@@ -1,4 +1,3 @@
-#include "i18n/Translation.h"
 #include "remote/Rsd.h"
 
 #include <charconv>
@@ -163,7 +162,7 @@ xpc::Value core_device_request(std::string_view feature_identifier,
                 value = value * 10 + static_cast<uint64_t>(c - '0');
             }
             if (bad) {
-                std::fprintf(stderr, XDB_TR("Invalid numeric component in XDB_COREDEVICE_VERSION: %s (using 629.3)\n"),
+                std::fprintf(stderr, "Invalid numeric component in XDB_COREDEVICE_VERSION: %s (using 629.3)\n",
                              override);
                 parsed.clear();
                 break;
@@ -176,7 +175,7 @@ xpc::Value core_device_request(std::string_view feature_identifier,
         }
         if (!parsed.empty()) {
             parts = std::move(parsed);
-            std::fprintf(stderr, XDB_TR("  coreDeviceVersion overridden by environment: %s (default: 629.3)\n"),
+            std::fprintf(stderr, "  coreDeviceVersion overridden by environment: %s (default: 629.3)\n",
                          override);
         }
     }
@@ -225,11 +224,11 @@ std::unique_ptr<ServiceConnection> ServiceConnection::open(net::Stack &stack,
                                                            std::string &err, bool verbose,
                                                            std::stop_token cancel) {
     if (cancel.stop_requested()) {
-        err = XDB_TR("Service connection cancelled");
+        err = "Service connection cancelled";
         return nullptr;
     }
     if (service.port == 0) {
-        err = std::string(XDB_TR("Service has no valid TCP port (expected 1..65535): ")) +
+        err = std::string("Service has no valid TCP port (expected 1..65535): ") +
               service.name;
         return nullptr;
     }
@@ -240,7 +239,7 @@ std::unique_ptr<ServiceConnection> ServiceConnection::open(net::Stack &stack,
     if (conn->cancelled(err)) return nullptr;
     if (!conn->tcp_->connect(service.port, err)) {
         if (conn->cancelled(err)) return nullptr;
-        err = XDB_TR("Connect to ") + service.name + XDB_TR(" port ") + std::to_string(service.port) + XDB_TR(" failed: ") + err;
+        err = "Connect to " + service.name + " port " + std::to_string(service.port) + " failed: " + err;
         return nullptr;
     }
     if (conn->cancelled(err)) return nullptr;
@@ -251,7 +250,7 @@ std::unique_ptr<ServiceConnection> ServiceConnection::open(net::Stack &stack,
     auto channel = Channel::open(*conn->tcp_, err, verbose);
     if (conn->cancelled(err)) return nullptr;
     if (!channel) {
-        err = service.name + XDB_TR(" HTTP/2 handshake failed: ") + err;
+        err = service.name + " HTTP/2 handshake failed: " + err;
         return nullptr;
     }
     // 身份申报仅用于 RSD 控制通道；服务连接完成握手后直接发送业务请求。
@@ -262,7 +261,7 @@ std::unique_ptr<ServiceConnection> ServiceConnection::open(net::Stack &stack,
 
 bool ServiceConnection::cancelled(std::string &err) const {
     if (!cancel_.stop_requested()) return false;
-    err = XDB_TR("Service connection cancelled");
+    err = "Service connection cancelled";
     return true;
 }
 
@@ -270,7 +269,7 @@ bool ServiceConnection::call(const xpc::Value &request, xpc::Value &reply, int t
                              std::string &err) {
     if (cancelled(err)) return false;
     if (channel_ == nullptr) {
-        err = XDB_TR("Service connection is not RemoteXPC");
+        err = "Service connection is not RemoteXPC";
         return false;
     }
     const bool ok = channel_->call(request, reply, timeout_ms, err);
@@ -280,7 +279,7 @@ bool ServiceConnection::call(const xpc::Value &request, xpc::Value &reply, int t
 bool ServiceConnection::send_only(const xpc::Value &request, std::string &err) {
     if (cancelled(err)) return false;
     if (channel_ == nullptr) {
-        err = XDB_TR("Service connection is not RemoteXPC");
+        err = "Service connection is not RemoteXPC";
         return false;
     }
     const bool ok = channel_->send_request(request, false, err);
@@ -290,7 +289,7 @@ bool ServiceConnection::send_only(const xpc::Value &request, std::string &err) {
 bool ServiceConnection::service(int timeout_ms, std::string &err) {
     if (cancelled(err)) return false;
     if (channel_ == nullptr) {
-        err = XDB_TR("Service connection is not RemoteXPC");
+        err = "Service connection is not RemoteXPC";
         return false;
     }
     const bool ok = channel_->service(timeout_ms, err);
@@ -300,7 +299,7 @@ bool ServiceConnection::service(int timeout_ms, std::string &err) {
 Channel::Wait ServiceConnection::wait_message(xpc::Value &out, int timeout_ms, std::string &err) {
     if (cancelled(err)) return Channel::Wait::Broken;
     if (channel_ == nullptr) {
-        err = XDB_TR("Service connection is not RemoteXPC");
+        err = "Service connection is not RemoteXPC";
         return Channel::Wait::Broken;
     }
     const auto status = channel_->wait(out, timeout_ms, err);
@@ -315,11 +314,11 @@ std::string device_error_text(std::string_view feature_identifier, const xpc::Va
         error.at("userInfo").at("NSLocalizedDescription").as_string_or("");
     const auto code = error.at("code").as_int_or(0);
     // 已收到业务错误，保留设备的说明和错误码，不在此自动重试。
-    std::string err = std::string(feature_identifier) + XDB_TR(" failed");
+    std::string err = std::string(feature_identifier) + " failed";
     if (!detail.empty()) {
         err += "：" + detail;
     }
-    err += XDB_TR("(code ") + std::to_string(code) + XDB_TR(")");
+    err += "(code " + std::to_string(code) + ")";
     err += Rsd::remote_control_version_hint(detail);
     // NSDebugDescription 保留原文，NSCodingPath 单独格式化，便于定位字段/类型错误。
     const std::string debug = error.at("userInfo").at("NSDebugDescription").as_string_or("");
@@ -330,7 +329,7 @@ std::string device_error_text(std::string_view feature_identifier, const xpc::Va
     }
     if (detail.empty() && debug.empty()) {
         // 没有文本诊断时附带截取后的原始错误对象。
-        err += XDB_TR("; original error: ") + xpc::describe(error).substr(0, 600);
+        err += "; original error: " + xpc::describe(error).substr(0, 600);
     }
     return err;
 }
@@ -354,7 +353,7 @@ CallResult ServiceConnection::invoke(std::string_view feature_identifier,
     output = xpc::make_dict();
     const auto *error = reply.find("CoreDevice.error");
     if (error == nullptr) {
-        err = std::string(feature_identifier) + XDB_TR(" failed; response missing CoreDevice.output: ") +
+        err = std::string(feature_identifier) + " failed; response missing CoreDevice.output: " +
               xpc::describe(reply).substr(0, 300);
         return CallResult::DeviceError;
     }
@@ -367,7 +366,7 @@ bool ServiceConnection::subscribe(std::string_view feature_identifier,
                                   std::string &err) {
     if (cancelled(err)) return false;
     if (channel_ == nullptr) {
-        err = XDB_TR("Streaming feature requires an XPC service connection");
+        err = "Streaming feature requires an XPC service connection";
         return false;
     }
     if (!channel_->send_request(
@@ -384,7 +383,7 @@ ServiceConnection::StreamEvent ServiceConnection::next_batch(std::vector<xpc::Va
                                                              int timeout_ms, std::string &err) {
     elements.clear();
     if (channel_ == nullptr) {
-        err = XDB_TR("Service connection is not an XPC channel");
+        err = "Service connection is not an XPC channel";
         return StreamEvent::Broken;
     }
     xpc::Value reply;
@@ -403,13 +402,13 @@ ServiceConnection::StreamEvent ServiceConnection::next_batch(std::vector<xpc::Va
             err = device_error_text(subscribed_feature_, *error);
         } else {
             err = subscribed_feature_ +
-                  XDB_TR(" response missing both sideChannelStatus and error: ") +
+                  " response missing both sideChannelStatus and error: " +
                   xpc::describe(reply).substr(0, 300);
         }
         return StreamEvent::DeviceError;
     }
     if (status->find("receivedError") != nullptr) {
-        err = subscribed_feature_ + XDB_TR(" failed mid-stream: ") +
+        err = subscribed_feature_ + " failed mid-stream: " +
               xpc::describe(status->at("receivedError")).substr(0, 400);
         return StreamEvent::DeviceError;
     }
@@ -474,14 +473,14 @@ std::optional<Rsd> Rsd::open_bounded(net::Stack &stack, transport::PacketTunnel 
     TcpBudgetGuard guard(*rsd->tcp_, budget);
     if (!rsd->tcp_->connect(p.rsd_port, err)) {
         if (!budget.check(err)) return std::nullopt;
-        err = XDB_TR("Connect to RSD port ") + std::to_string(p.rsd_port) + XDB_TR(" failed: ") + err;
+        err = "Connect to RSD port " + std::to_string(p.rsd_port) + " failed: " + err;
         return std::nullopt;
     }
     if (!budget.check(err)) return std::nullopt;
     auto channel = Channel::open(*rsd->tcp_, err, verbose);
     if (!budget.check(err)) return std::nullopt;
     if (!channel) {
-        err = XDB_TR("RSD control channel handshake failed: ") + err;
+        err = "RSD control channel handshake failed: " + err;
         return std::nullopt;
     }
     rsd->control_ = std::make_unique<Channel>(std::move(*channel));
@@ -493,7 +492,7 @@ std::optional<Rsd> Rsd::open_bounded(net::Stack &stack, transport::PacketTunnel 
     const auto *info = rsd->control_->peer_info();
     const auto *services = info != nullptr ? info->find("Services") : nullptr;
     if (services == nullptr || !services->is_dict()) {
-        err = XDB_TR("peer_info missing Services");
+        err = "peer_info missing Services";
         return std::nullopt;
     }
     rsd->services_ = parse_service_directory(*services);
@@ -534,7 +533,7 @@ bool Rsd::supports(std::string_view service_name, std::string_view feature) cons
 std::unique_ptr<ServiceConnection> Rsd::connect_service(std::string_view name, std::string &err,
                                                         bool verbose, std::stop_token cancel) {
     if (cancel.stop_requested()) {
-        err = XDB_TR("Service connection cancelled");
+        err = "Service connection cancelled";
         return nullptr;
     }
     const auto info = service(name);
@@ -549,10 +548,10 @@ std::string Rsd::missing_service_message(const std::string_view name,
                                          const std::vector<ServiceInfo> &seen) {
     // 报告目录总数，仅逐行列出 CoreDevice 服务名，其它服务不展开。
     // 目录能力只是诊断信息，不能单独证明 DDI 挂载状态；全量目录由 feature_probe 输出。
-    std::string out = XDB_TR("Device directory missing service ") + std::string(name) + XDB_TR(".");
+    std::string out = "Device directory missing service " + std::string(name) + ".";
     if (seen.empty()) {
-        out += XDB_TR("Directory is empty; check tunnel setup and DDI mounting.");
-        out += XDB_TR("\nDownload a supported DDI with xdb --download-ddi; installation and compatibility guidance: docs/DDI.md.\n");
+        out += "Directory is empty; check tunnel setup and DDI mounting.";
+        out += "\nDownload a supported DDI with xdb --download-ddi; installation and compatibility guidance: docs/DDI.md.\n";
         return out;
     }
     std::vector<std::string> cd;
@@ -561,21 +560,21 @@ std::string Rsd::missing_service_message(const std::string_view name,
             cd.push_back(s.name);
         }
     }
-    out += XDB_TR("Device directory contains ") + std::to_string(seen.size()) + XDB_TR(" services, including ") +
-           std::to_string(cd.size()) + XDB_TR(" com.apple.coredevice.* services:\n");
+    out += "Device directory contains " + std::to_string(seen.size()) + " services, including " +
+           std::to_string(cd.size()) + " com.apple.coredevice.* services:\n";
     if (cd.empty()) {
-        out += XDB_TR(
+        out +=
             "  (none found; check DDI mounting through Xcode and the CoreDevice services "
-            "available on this device)\n");
+            "available on this device)\n";
     }
     for (const auto &n : cd) {
         out += "  · " + n + "\n";
     }
-    out += XDB_TR("A mounted DDI may still lack this service. Check its version and capabilities; download a supported DDI with xdb --download-ddi. Installation guidance: docs/DDI.md.\n");
-    out += XDB_TR(
+    out += "A mounted DDI may still lack this service. Check its version and capabilities; download a supported DDI with xdb --download-ddi. Installation guidance: docs/DDI.md.\n";
+    out +=
         "Include this diagnostic when reporting the issue. For the full directory and "
-        "feature lists, run feature_probe --all to print all ") +
-           std::to_string(seen.size()) + XDB_TR(" services.\n");
+        "feature lists, run feature_probe --all to print all " +
+           std::to_string(seen.size()) + " services.\n";
     return out;
 }
 
@@ -584,10 +583,10 @@ std::string Rsd::remote_control_version_hint(const std::string_view device_detai
     if (device_detail.find("requires iOS") == std::string_view::npos) {
         return "";
     }
-    return XDB_TR(
+    return
         " (device rejected the system version: live media worked on tested iOS 27 "
         "devices and was rejected on tested iOS 18 devices. Screenshot fallback and "
-        "button input may still be available; see docs/coredevice.md section 23)");
+        "button input may still be available; see docs/coredevice.md section 23)";
 }
 
 const xpc::Value *Rsd::properties() const {

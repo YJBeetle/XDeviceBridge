@@ -1,4 +1,3 @@
-#include "i18n/Translation.h"
 #include "remote/DisplayInfo.h"
 
 #include <chrono>
@@ -121,7 +120,7 @@ const Display *DisplayInfo::primary() const {
 std::optional<DisplayInfo> parse_display_info(const xpc::Value &element, std::string &err) {
     const auto *list = element.find("displays");
     if (list == nullptr || list->type != xpc::Type::Array) {
-        err = XDB_TR("Update missing displays array: ") + xpc::describe(element).substr(0, 200);
+        err = "Update missing displays array: " + xpc::describe(element).substr(0, 200);
         return std::nullopt;
     }
     DisplayInfo info;
@@ -157,7 +156,7 @@ std::optional<DisplayInfo> parse_display_info(const xpc::Value &element, std::st
         info.device_orientation = as_string(o->find("currentDeviceOrientation"));
     }
     if (info.displays.empty()) {
-        err = XDB_TR("No recognized display entries");
+        err = "No recognized display entries";
         return std::nullopt;
     }
     return info;
@@ -183,7 +182,7 @@ std::optional<DisplayInfo> fetch_display_info(Device &device, std::string &err, 
         return out;
     }
     if (r == CallResult::Ok && parse_err.empty()) {
-        err = std::string(kFeature) + XDB_TR(" ended without an update");
+        err = std::string(kFeature) + " ended without an update";
     } else if (!parse_err.empty()) {
         err = parse_err;
     }

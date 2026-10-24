@@ -1,5 +1,4 @@
 #include "util/Bytes.h"
-#include "i18n/Translation.h"
 #include "media/FramePump.h"
 
 #include <algorithm>
@@ -72,12 +71,11 @@ void warn_no_software() {
     static std::once_flag warned;
     std::call_once(warned, [] {
         std::fprintf(stderr,
-                 XDB_TR(
                      "Software decoder (libavcodec) is not included; continuing with the platform "
                      "decoder. The current adapter uses 2-byte NAL lengths and cannot process larger "
                      "NALs. Such access units are dropped and the session is recreated, which may "
                      "interrupt video.\nInstall FFmpeg development packages and reconfigure the "
-                     "build.\n"));
+                     "build.\n");
     });
 }
 
@@ -98,27 +96,27 @@ std::unique_ptr<FramePump> FramePump::start(remote::Device &device, const Option
                                             std::string &err, bool verbose) {
     auto pump = std::unique_ptr<FramePump>(new FramePump(device, options, verbose));
     if (options.recorder != nullptr && !options.record_path.empty()) {
-        err = XDB_TR("Raw HEVC and container recording cannot write to the same video pump");
+        err = "Raw HEVC and container recording cannot write to the same video pump";
         return nullptr;
     }
     // 缺少解码后端时不建立设备媒体会话，避免占用设备资源。
     // 使用编译期能力常量，无需创建平台解码会话试探。
     if (options.decode_video && !xdb::kHaveDecoder) {
-        err = XDB_TR(xdb::kNoDecoderMessage);
+        err = xdb::kNoDecoderMessage;
         return nullptr;
     }
     if (!options.decode_video) {
         if (options.recorder == nullptr && options.record_path.empty()) {
-            err = XDB_TR("Video capture without decoding requires a recording consumer");
+            err = "Video capture without decoding requires a recording consumer";
             return nullptr;
         }
         if (options.use_hardware) {
-            err = XDB_TR("Hardware video decoding requires video decoding");
+            err = "Hardware video decoding requires video decoding";
             return nullptr;
         }
         if (options.debug_fail_decode_of_keyframe != 0 || options.debug_fail_any_keyframe ||
             options.debug_suppress_pli_after_fail) {
-            err = XDB_TR("Video decode-failure tests require video decoding");
+            err = "Video decode-failure tests require video decoding";
             return nullptr;
         }
         if (!recording_idr_checks_available(err)) return nullptr;
@@ -132,7 +130,7 @@ std::unique_ptr<FramePump> FramePump::start(remote::Device &device, const Option
         pump->record_ = std::fopen(options.record_path.c_str(), "wb");
         if (pump->record_ == nullptr) {
             const int error = errno;
-            err = XDB_TR("Cannot open recording file ") + options.record_path + ": " +
+            err = "Cannot open recording file " + options.record_path + ": " +
                   std::strerror(error != 0 ? error : EIO);
             return nullptr;
         }
@@ -158,7 +156,7 @@ FramePump::~FramePump() {
     if (session_ != nullptr) {
         std::string stop_err;
         if (!session_->stop(device_, stop_err, verbose_)) {
-            std::fprintf(stderr, XDB_TR("Failed to stop device video session (device will release it when the lease expires): %s\n"),
+            std::fprintf(stderr, "Failed to stop device video session (device will release it when the lease expires): %s\n",
                          stop_err.c_str());
         }
         session_.reset();
@@ -190,8 +188,8 @@ void FramePump::note_recording_error(std::string reason, bool mirroring_continue
         recording_error_ = reason;
     }
     std::fprintf(stderr, mirroring_continues
-        ? XDB_TR("Recording failed: %s. Mirroring continues; the file is incomplete.\n")
-        : XDB_TR("Recording failed: %s. The file may be incomplete.\n"), reason.c_str());
+        ? "Recording failed: %s. Mirroring continues; the file is incomplete.\n"
+        : "Recording failed: %s. The file may be incomplete.\n", reason.c_str());
 }
 
 void FramePump::close_recording(bool mirroring_continues) {
@@ -203,14 +201,14 @@ void FramePump::close_recording(bool mirroring_continues) {
     errno = 0;
     if (std::fflush(file) != 0) {
         const int error = errno;
-        note_recording_error(XDB_TR("Cannot flush recording file ") +
+        note_recording_error("Cannot flush recording file " +
             options_.record_path + ": " + std::strerror(error != 0 ? error : EIO),
             mirroring_continues);
     }
     errno = 0;
     if (std::fclose(file) != 0) {
         const int error = errno;
-        note_recording_error(XDB_TR("Cannot close recording file ") +
+        note_recording_error("Cannot close recording file " +
             options_.record_path + ": " + std::strerror(error != 0 ? error : EIO),
             mirroring_continues);
     }
@@ -233,7 +231,7 @@ void FramePump::write_recording_nal(std::span<const uint8_t> bytes) {
         }
     }
     const int error = errno;
-    note_recording_error(XDB_TR("Cannot write recording file ") + options_.record_path +
+    note_recording_error("Cannot write recording file " + options_.record_path +
         ": " + std::strerror(error != 0 ? error : EIO), options_.decode_video);
     close_recording(options_.decode_video);
 }
@@ -241,7 +239,7 @@ void FramePump::write_recording_nal(std::span<const uint8_t> bytes) {
 bool FramePump::restart(std::string &err) {
     if (worker_running_ && options_.recorder != nullptr) {
         // 重建 RPC 可能失败，必须先封闭旧录制 epoch，再停止旧设备会话。
-        options_.recorder->fail(XDB_TR("Video session was recreated during container recording"));
+        options_.recorder->fail("Video session was recreated during container recording");
     }
     /// 开始重建时标记恢复中，新会话首帧输出后清除，供调用方区分恢复和静止。
     reviving_ = true;
@@ -258,7 +256,7 @@ bool FramePump::restart(std::string &err) {
         std::string stop_err;
         if (!session_->stop(device_, stop_err, verbose_)) {
             // 停止旧会话失败仍尝试新会话，保留错误供排查设备端残留状态。
-            std::fprintf(stderr, XDB_TR("Failed to stop previous video session (still attempting restart): %s\n"), stop_err.c_str());
+            std::fprintf(stderr, "Failed to stop previous video session (still attempting restart): %s\n", stop_err.c_str());
         }
         session_.reset();
     }
@@ -280,7 +278,7 @@ bool FramePump::restart(std::string &err) {
               if (terminal_error_.empty()) terminal_error_ = err; }
             cv_.notify_all();
             if (worker_running_) {
-                std::fprintf(stderr, XDB_TR("Video negotiation failed during recovery; stopping video reception: %s\n"), err.c_str());
+                std::fprintf(stderr, "Video negotiation failed during recovery; stopping video reception: %s\n", err.c_str());
             }
         }
         reviving_ = false;  // 重建失败，结束本次恢复标记。
@@ -305,7 +303,7 @@ bool FramePump::restart(std::string &err) {
         std::lock_guard<std::mutex> lock(mutex_);
         ++stats_.restarts;
     }
-    std::printf(XDB_TR("Video session recreated, receive port=%u\n"), session_->receiver_port());
+    std::printf("Video session recreated, receive port=%u\n", session_->receiver_port());
     return true;
 }
 
@@ -346,7 +344,7 @@ void FramePump::request_keyframe(std::optional<uint32_t> media_source) {
         ++stats_.pli_sent;
     } else {
         // 发送失败保留诊断；后续静默与关键帧等待策略负责恢复。
-        std::fprintf(stderr, XDB_TR("Failed to send PLI: %s\n"), serr.c_str());
+        std::fprintf(stderr, "Failed to send PLI: %s\n", serr.c_str());
     }
 }
 
@@ -356,7 +354,7 @@ void FramePump::record_access_unit(const AnnexBParser::AccessUnit &unit, std::op
         // 容器接收完整原始 AU，不继承显示后端的尺寸、丢帧或恢复门限。
         // 借用本 AU 或当前 epoch 的参数；Recorder 在返回前完成有界复制。
         if (!media_source || !unit.sampling_timestamp) {
-            options_.recorder->fail(XDB_TR("Complete video access unit has no bound sampling timestamp"));
+            options_.recorder->fail("Complete video access unit has no bound sampling timestamp");
         } else {
             (void)options_.recorder->video(session_->started().session_uuid, *media_source,
                 *unit.sampling_timestamp, unit.nals, vps, sps, pps);
@@ -386,7 +384,7 @@ void FramePump::process_encoded_unit(const AnnexBParser::AccessUnit &unit, Worke
     const bool timestamp_valid = media_source && unit.sampling_timestamp && (!idr || timestamp_forward);
     if (!timestamp_valid || (!idr && (!ever_keyframe_ || need_keyframe_))) {
         if (!timestamp_valid && options_.recorder != nullptr) {
-            options_.recorder->fail(XDB_TR("Encoded video access unit has a missing or non-increasing sampling timestamp"));
+            options_.recorder->fail("Encoded video access unit has a missing or non-increasing sampling timestamp");
         }
         need_keyframe_ = true;
         awaiting_idr_from_loss_ = true;
@@ -411,7 +409,7 @@ void FramePump::process_encoded_unit(const AnnexBParser::AccessUnit &unit, Worke
     if (syntax.valid() && options_.recorder != nullptr &&
         !state.encoded_config->permits_equal_dts_pts()) {
         syntax.status = RecordingIdrSyntax::Status::Invalid;
-        syntax.error = XDB_TR("Recording HEVC requires a no-reorder configuration");
+        syntax.error = "Recording HEVC requires a no-reorder configuration";
     }
     if (!syntax.valid()) {
         if (options_.recorder != nullptr) options_.recorder->fail(syntax.error);
@@ -466,7 +464,7 @@ bool FramePump::configure_decoder(const AnnexBParser::AccessUnit &unit, size_t b
             auto soft = create_software_decoder();
             if (soft != nullptr) {
                 state.decoder = std::move(soft);
-                std::printf(XDB_TR("Decoder switched to %s\n"), state.decoder->backend_name());
+                std::printf("Decoder switched to %s\n", state.decoder->backend_name());
             } else {
                 // 软件后端未编入时保留平台后端并提示构建条件。
                 warn_no_software();
@@ -535,9 +533,9 @@ void FramePump::on_access_unit(AnnexBParser::AccessUnit &&unit, WorkerState &sta
         if (oversized_restarts_ >= kMaxOversizedRestarts) {
             if (!video_unusable_) {
                 video_unusable_ = true;
-                std::printf(XDB_TR(
+                std::printf(
                     "After %d restarts, NALs still exceed the decoder limit. Video is unavailable; "
-                    "retrying every %llu seconds. Callers can use screenshots.\n"),
+                    "retrying every %llu seconds. Callers can use screenshots.\n",
                             oversized_restarts_,
                             static_cast<unsigned long long>(kOversizedRetryMs / 1000));
             }
@@ -587,9 +585,9 @@ void FramePump::on_access_unit(AnnexBParser::AccessUnit &&unit, WorkerState &sta
             std::lock_guard<std::mutex> lock(mutex_);
             ++stats_.forced_decode_failures;
         }
-        std::printf(XDB_TR("Test: injected keyframe decode failure (%s)\n"),
-                    options_.debug_suppress_pli_after_fail ? XDB_TR("further PLI disabled")
-                                                           : XDB_TR("PLI continues"));
+        std::printf("Test: injected keyframe decode failure (%s)\n",
+                    options_.debug_suppress_pli_after_fail ? "further PLI disabled"
+                                                           : "PLI continues");
     } else {
         ok = state.decoder->decode(au, f);
     }
@@ -655,9 +653,9 @@ void FramePump::loop() {
     // 编译期能力检查拦截，此处仍保留防御检查。
     if (options_.decode_video && state.decoder == nullptr) {
         if (options_.recorder != nullptr) {
-            options_.recorder->fail(XDB_TR("Video reception stopped because no decoder is available"));
+            options_.recorder->fail("Video reception stopped because no decoder is available");
         }
-        std::fprintf(stderr, "%s", XDB_TR(xdb::kNoDecoderMessage));
+        std::fprintf(stderr, "%s", xdb::kNoDecoderMessage);
         return;
     }
     std::unique_ptr<xdb::rt::HevcRtpDepacketizer> depacketizer;
@@ -690,11 +688,11 @@ void FramePump::loop() {
         }
         loss_seen_ = loss_now;
         if (options_.recorder != nullptr) {
-            options_.recorder->fail(XDB_TR("Video packet loss or damaged payload ended container recording"));
+            options_.recorder->fail("Video packet loss or damaged payload ended container recording");
         }
         if (!need_keyframe_) {
             // 仅在进入关键帧等待状态时输出一次。
-            std::printf(XDB_TR("Video packet loss or payload damage detected: requesting keyframe, wait limit %d ms\n"),
+            std::printf("Video packet loss or payload damage detected: requesting keyframe, wait limit %d ms\n",
                         options_.stall_restart_ms);
         }
         discard_for_recovery();
@@ -759,20 +757,20 @@ void FramePump::loop() {
                 reviving_ = false;
             }
             if (verbose_) {
-                std::printf(XDB_TR("%s: no data for %llu ms; device reports session alive, continuing to wait\n"),
+                std::printf("%s: no data for %llu ms; device reports session alive, continuing to wait\n",
                             why, static_cast<unsigned long long>(quiet_ms));
             }
             return false;  // 设备报告会话仍运行，暂不重建。
         }
-        std::printf(XDB_TR("%s: no data for %llu ms, %s; recreating video session\n"), why,
+        std::printf("%s: no data for %llu ms, %s; recreating video session\n", why,
                     static_cast<unsigned long long>(quiet_ms),
                     state == StreamSession::ServerState::Ended
-                        ? XDB_TR("device session ended")
-                        : (XDB_TR("session status query failed (") + perr + XDB_TR(")")).c_str());
+                        ? "device session ended"
+                        : ("session status query failed (" + perr + ")").c_str());
         std::string restart_err;
         if (!restart(restart_err)) {
             if (!negotiation_invalid_) {
-                std::fprintf(stderr, XDB_TR("Failed to recreate video session: %s\n"), restart_err.c_str());
+                std::fprintf(stderr, "Failed to recreate video session: %s\n", restart_err.c_str());
             }
             reviving_ = false;
             return false;
@@ -787,7 +785,7 @@ void FramePump::loop() {
         std::string restart_err;
         if (!restart(restart_err)) {
             if (!negotiation_invalid_) {
-                std::fprintf(stderr, XDB_TR("Failed to recreate video session: %s\n"), restart_err.c_str());
+                std::fprintf(stderr, "Failed to recreate video session: %s\n", restart_err.c_str());
             }
             return false;
         }
@@ -803,7 +801,7 @@ void FramePump::loop() {
     auto judge_quiet = [&](uint64_t quiet, uint64_t blind_at, uint64_t ask_every_ms,
                            const char *why) {
         if (quiet > blind_at) {
-            std::printf(XDB_TR("%s: no data for %llu ms; recovery threshold exceeded, recreating video session\n"),
+            std::printf("%s: no data for %llu ms; recovery threshold exceeded, recreating video session\n",
                         why, static_cast<unsigned long long>(quiet));
             restart_now();
         } else if (quiet > kQuietSuspiciousMs) {
@@ -831,7 +829,7 @@ void FramePump::loop() {
             if (negotiation_invalid_) {
                 return;
             }
-            std::fprintf(stderr, XDB_TR("Failed to recreate video session: %s (retry in 1 second)\n"), rerr.c_str());
+            std::fprintf(stderr, "Failed to recreate video session: %s (retry in 1 second)\n", rerr.c_str());
             std::unique_lock<std::mutex> lock(mutex_);
             cv_.wait_for(lock, std::chrono::seconds(1), [this] { return stopping_; });
             if (stopping_) {
@@ -861,12 +859,12 @@ void FramePump::loop() {
             }
             if (failed_after == 1) {
                 // 每个会话只输出第一次发送失败，避免重复日志掩盖恢复结果。
-                std::fprintf(stderr, XDB_TR("Failed to send RTCP keepalive: %s\n"), serr.c_str());
+                std::fprintf(stderr, "Failed to send RTCP keepalive: %s\n", serr.c_str());
             }
         }
         // 收到取帧或输入触发的 wake 请求后，按相同静默策略检查会话。
         if (wake_requested_.exchange(false)) {
-            judge_quiet(now_ms() - last_packet_ms_, kQuietCertainMs, 0, XDB_TR("Input or frame request"));
+            judge_quiet(now_ms() - last_packet_ms_, kQuietCertainMs, 0, "Input or frame request");
             continue;
         }
         // 降级重试计时每轮检查，不依赖收到超大 AU 或发生读超时。
@@ -874,16 +872,16 @@ void FramePump::loop() {
         if (video_unusable_ && now_ms() - last_restart_ms_ >= kOversizedRetryMs) {
             last_restart_ms_ = now_ms();
             oversized_restart_ = true;
-            std::printf(XDB_TR("Video fallback active for %llu seconds; retrying video session\n"),
+            std::printf("Video fallback active for %llu seconds; retrying video session\n",
                         static_cast<unsigned long long>(kOversizedRetryMs / 1000));
         }
         if (oversized_restart_) {
             oversized_restart_ = false;
             // 降级既可能来自尺寸限制，也可能来自连续无关键帧输出，日志不能
             // 将定时重试一律归因于后端尺寸限制。
-            std::printf(XDB_TR("%s; recreating video session to obtain a keyframe\n"),
-                        video_unusable_ ? XDB_TR("Scheduled video retry after fallback")
-                                        : XDB_TR("NAL exceeds platform decoder length limit"));
+            std::printf("%s; recreating video session to obtain a keyframe\n",
+                        video_unusable_ ? "Scheduled video retry after fallback"
+                                        : "NAL exceeds platform decoder length limit");
             // 失败后的空会话由循环顶部统一退避重试。
             restart_now();
             continue;
@@ -919,7 +917,7 @@ void FramePump::loop() {
                     std::lock_guard<std::mutex> lock(mutex_);
                     ++stats_.stall_restarts;
                 }
-                std::printf(XDB_TR("Keyframe wait reached %d ms; recreating video session\n"),
+                std::printf("Keyframe wait reached %d ms; recreating video session\n",
                             options_.stall_restart_ms);
                 restart_now();  // 失败由循环顶端的空会话兜底接手退避重试
                 continue;       // 这一轮的包属于上一条会话了
@@ -934,16 +932,16 @@ void FramePump::loop() {
             case NokeyAction::kRetry:
                 ++nokey_restarts_;
                 session_start_ms_ = now_ms();
-                std::printf(XDB_TR("No keyframe output after %llu seconds; recreating video session (%d/%d)\n"),
+                std::printf("No keyframe output after %llu seconds; recreating video session (%d/%d)\n",
                             static_cast<unsigned long long>(kNokeyBlindMs / 1000),
                             nokey_restarts_, kMaxNokeyRestarts);
                 restart_now();
                 continue;  // 这一轮的包属于上一条会话了
             case NokeyAction::kDegrade:
                 video_unusable_ = true;
-                std::printf(XDB_TR(
+                std::printf(
                     "No keyframe output after %d restarts. Video is unavailable; callers can use "
-                    "screenshots. Retrying every %llu seconds.\n"),
+                    "screenshots. Retrying every %llu seconds.\n",
                             kMaxNokeyRestarts,
                             static_cast<unsigned long long>(kOversizedRetryMs / 1000));
                 break;
@@ -965,7 +963,7 @@ void FramePump::loop() {
                 const uint64_t quiet = now_ms() - last_packet_ms_;
                 judge_quiet(quiet, std::max<uint64_t>(kQuietCertainMs,
                                                        static_cast<uint64_t>(options_.silence_restart_ms)),
-                            kSrPeriodMs, XDB_TR("Receive silence timeout"));
+                            kSrPeriodMs, "Receive silence timeout");
             }
             continue;  // 超时不是结束
         }
@@ -1042,7 +1040,7 @@ void FramePump::loop() {
         ++video_seen;
         if (options_.debug_drop_nth_packet > 0 &&
             video_seen == static_cast<uint64_t>(options_.debug_drop_nth_packet)) {
-            std::printf(XDB_TR("Test: dropped video packet %d to inject a sequence gap\n"),
+            std::printf("Test: dropped video packet %d to inject a sequence gap\n",
                         options_.debug_drop_nth_packet);
             options_.debug_drop_nth_packet = 0;  // 一次性：重起之后的新会话不该再被丢
             std::lock_guard<std::mutex> lock(mutex_);
@@ -1073,10 +1071,10 @@ void FramePump::loop() {
             const auto timestamp = sampling_clock.observe(nal.timestamp);
             if (!timestamp) {
                 if (options_.recorder != nullptr) {
-                    options_.recorder->fail(XDB_TR("Video sampling timestamp became ambiguous"));
+                    options_.recorder->fail("Video sampling timestamp became ambiguous");
                 }
                 if (!need_keyframe_) {
-                    std::fputs(XDB_TR("Video sampling timestamp is ambiguous; discarding the access unit and requesting a keyframe.\n"), stderr);
+                    std::fputs("Video sampling timestamp is ambiguous; discarding the access unit and requesting a keyframe.\n", stderr);
                 }
                 discard_for_recovery();
                 continue;
@@ -1101,10 +1099,10 @@ void FramePump::loop() {
             }
             if (!parser_->push_nal(std::move(nal.bytes), timestamp, nal.ends_access_unit)) {
                 if (options_.recorder != nullptr) {
-                    options_.recorder->fail(XDB_TR("Video access-unit input became inconsistent"));
+                    options_.recorder->fail("Video access-unit input became inconsistent");
                 }
                 if (!need_keyframe_) {
-                    std::fputs(XDB_TR("Video access-unit input is inconsistent; discarding the access unit and requesting a keyframe.\n"), stderr);
+                    std::fputs("Video access-unit input is inconsistent; discarding the access unit and requesting a keyframe.\n", stderr);
                 }
                 discard_for_recovery();
             }

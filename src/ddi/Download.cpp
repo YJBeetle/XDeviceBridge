@@ -2,7 +2,6 @@
 #include "ddi/DownloadInternal.h"
 #include "ddi/File.h"
 #include "plist/Plist.h"
-#include "i18n/Translation.h"
 
 #include <curl/curl.h>
 #include <openssl/evp.h>
@@ -26,27 +25,27 @@ using Clock = std::chrono::steady_clock;
 
 std::vector<uint8_t> digest_file(const fs::path &path, const EVP_MD *algorithm, bool git_blob = false) {
     std::ifstream file(path, std::ios::binary);
-    if (!file) throw std::runtime_error(XDB_TR("Cannot open DDI file for checksum"));
+    if (!file) throw std::runtime_error("Cannot open DDI file for checksum");
     std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> ctx(EVP_MD_CTX_new(), EVP_MD_CTX_free);
     if (!ctx || EVP_DigestInit_ex(ctx.get(), algorithm, nullptr) != 1)
-        throw std::runtime_error(XDB_TR("Cannot initialize DDI checksum"));
+        throw std::runtime_error("Cannot initialize DDI checksum");
     if (git_blob) {
         std::string header = "blob " + std::to_string(fs::file_size(path));
         header += '\0';
         if (EVP_DigestUpdate(ctx.get(), header.data(), header.size()) != 1)
-            throw std::runtime_error(XDB_TR("Cannot calculate DDI checksum"));
+            throw std::runtime_error("Cannot calculate DDI checksum");
     }
     std::array<char, 64 * 1024> buf{};
     while (file) {
         file.read(buf.data(), buf.size());
         if (file.gcount() && EVP_DigestUpdate(ctx.get(), buf.data(), static_cast<size_t>(file.gcount())) != 1)
-            throw std::runtime_error(XDB_TR("Cannot calculate DDI checksum"));
+            throw std::runtime_error("Cannot calculate DDI checksum");
     }
-    if (!file.eof()) throw std::runtime_error(XDB_TR("Cannot read DDI checksum input"));
+    if (!file.eof()) throw std::runtime_error("Cannot read DDI checksum input");
     std::vector<uint8_t> result(EVP_MAX_MD_SIZE);
     unsigned length = 0;
     if (EVP_DigestFinal_ex(ctx.get(), result.data(), &length) != 1)
-        throw std::runtime_error(XDB_TR("Cannot finalize DDI checksum"));
+        throw std::runtime_error("Cannot finalize DDI checksum");
     result.resize(length);
     return result;
 }
@@ -65,7 +64,7 @@ void check_catalog(const detail::Catalog &catalog) {
     case Kind::Personalized: expected = {"BuildManifest.plist", "Image.dmg", "Image.dmg.trustcache"}; break;
     case Kind::Cryptex: expected = {"BuildManifest.plist", "Image.dmg", "Image.dmg.trustcache",
                                  "Image.dmg.cryptex_info", "Image.dmg.root_hash"}; break;
-    default: throw std::runtime_error(XDB_TR("Invalid DDI download catalog"));
+    default: throw std::runtime_error("Invalid DDI download catalog");
     }
     bool build_valid = !catalog.build.empty() &&
         catalog.build.find_first_not_of("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz") == std::string::npos;
@@ -76,14 +75,14 @@ void check_catalog(const detail::Catalog &catalog) {
             std::to_string(version->major) + "." + std::to_string(version->minor);
     }
     if (!build_valid || !catalog.source_url.starts_with("https://") || catalog.assets.size() != expected.size())
-        throw std::runtime_error(XDB_TR("Invalid DDI download catalog"));
+        throw std::runtime_error("Invalid DDI download catalog");
     for (const auto &asset : catalog.assets) {
         const auto position = std::find(expected.begin(), expected.end(), asset.name);
         if (position == expected.end() || asset.size == 0 || asset.size > 64 * 1024 * 1024 ||
             (catalog.kind == Kind::Classic ? !hex_digest(asset.git_blob_sha1, 40) : !hex_digest(asset.sha256, 64)) ||
             (!asset.sha256.empty() && !hex_digest(asset.sha256, 64)) ||
             (!asset.git_blob_sha1.empty() && !hex_digest(asset.git_blob_sha1, 40)))
-            throw std::runtime_error(XDB_TR("Invalid DDI download asset"));
+            throw std::runtime_error("Invalid DDI download asset");
         expected.erase(position); // Reject duplicates, unexpected names and path traversal.
     }
 }
@@ -124,11 +123,11 @@ void check_manifest(const fs::path &directory, const detail::Catalog &catalog, c
     if (catalog.kind == Kind::Classic) return;
     std::string err;
     auto manifest = plist::parse(detail::read_file(directory / "BuildManifest.plist", plist::kMaxInput), &err);
-    if (!manifest || !manifest->is_dict()) throw std::runtime_error(XDB_TR("Invalid DDI BuildManifest plist"));
+    if (!manifest || !manifest->is_dict()) throw std::runtime_error("Invalid DDI BuildManifest plist");
     const auto *build = manifest->find("ProductBuildVersion");
     const auto *identities = manifest->find("BuildIdentities");
     if (!build || !build->is_string() || build->string != catalog.build || !identities || !identities->is_array())
-        throw std::runtime_error(XDB_TR("DDI BuildManifest does not match the pinned build"));
+        throw std::runtime_error("DDI BuildManifest does not match the pinned build");
     const std::vector<std::pair<const char *, const char *>> payloads = catalog.kind == Kind::Cryptex ?
         std::vector<std::pair<const char *, const char *>>{{"Cryptex1,GenericDmg", "Image.dmg"},
             {"Cryptex1,GenericTrustCache", "Image.dmg.trustcache"},
@@ -159,7 +158,7 @@ void check_manifest(const fs::path &directory, const detail::Catalog &catalog, c
         const auto *entries = identity.find("Manifest");
         if (!entries || !entries->is_dict()) {
             if (catalog.kind == Kind::Cryptex)
-                throw std::runtime_error(XDB_TR("DDI Cryptex manifest entries missing"));
+                throw std::runtime_error("DDI Cryptex manifest entries missing");
             continue;
         }
         bool valid = true;
@@ -173,7 +172,7 @@ void check_manifest(const fs::path &directory, const detail::Catalog &catalog, c
                 !path || !path->is_string() || path->string != name ||
                 digests[payload_index] != digest->data) {
                 if (catalog.kind == Kind::Cryptex)
-                    throw std::runtime_error(std::string(XDB_TR("DDI Cryptex manifest digest mismatch: ")) + name);
+                    throw std::runtime_error(std::string("DDI Cryptex manifest digest mismatch: ") + name);
                 valid = false;
                 break;
             }
@@ -182,9 +181,9 @@ void check_manifest(const fs::path &directory, const detail::Catalog &catalog, c
         if (valid) found = true;
     }
     if (!found) {
-        if (catalog.kind == Kind::Cryptex) throw std::runtime_error(XDB_TR("DDI BuildManifest lacks a Cryptex identity"));
-        if (!matched_hardware) throw std::runtime_error(XDB_TR("DDI BuildManifest lacks a matching Personalized hardware identity"));
-        throw std::runtime_error(XDB_TR("DDI Personalized manifest digest mismatch for the requested hardware"));
+        if (catalog.kind == Kind::Cryptex) throw std::runtime_error("DDI BuildManifest lacks a Cryptex identity");
+        if (!matched_hardware) throw std::runtime_error("DDI BuildManifest lacks a matching Personalized hardware identity");
+        throw std::runtime_error("DDI Personalized manifest digest mismatch for the requested hardware");
     }
 }
 
@@ -193,19 +192,19 @@ bool validate_files(const fs::path &directory, const detail::Catalog &catalog, s
     try {
         check_catalog(catalog);
         if (fs::is_symlink(fs::symlink_status(directory)) || !fs::is_directory(directory))
-            throw std::runtime_error(XDB_TR("DDI cache directory is missing or is a symbolic link"));
+            throw std::runtime_error("DDI cache directory is missing or is a symbolic link");
         for (const auto &asset : catalog.assets) {
             const auto path = directory / asset.name;
             if (fs::is_symlink(fs::symlink_status(path)) || !fs::is_regular_file(path) || fs::file_size(path) != asset.size)
-                throw std::runtime_error(std::string(XDB_TR("DDI cache size or file type mismatch: ")) + asset.name);
+                throw std::runtime_error(std::string("DDI cache size or file type mismatch: ") + asset.name);
             if (!asset.sha256.empty() && util::hex_encode(digest_file(path, EVP_sha256())) != asset.sha256)
-                throw std::runtime_error(std::string(XDB_TR("DDI cache SHA-256 mismatch: ")) + asset.name);
+                throw std::runtime_error(std::string("DDI cache SHA-256 mismatch: ") + asset.name);
             if (!asset.git_blob_sha1.empty() && util::hex_encode(digest_file(path, EVP_sha1(), true)) != asset.git_blob_sha1)
-                throw std::runtime_error(std::string(XDB_TR("DDI cache Git blob SHA-1 mismatch: ")) + asset.name);
+                throw std::runtime_error(std::string("DDI cache Git blob SHA-1 mismatch: ") + asset.name);
         }
         check_manifest(directory, catalog, target);
         if (complete && detail::read_file(directory / ".complete", 4096) != marker(catalog))
-            throw std::runtime_error(XDB_TR("DDI cache completion marker mismatch"));
+            throw std::runtime_error("DDI cache completion marker mismatch");
         error.clear();
         return true;
     } catch (const std::exception &e) { error = e.what(); return false; }
@@ -239,14 +238,14 @@ int curl_progress(void *opaque, curl_off_t, curl_off_t, curl_off_t, curl_off_t) 
 bool curl_transfer(const std::string &url, uint64_t max_bytes, std::chrono::milliseconds timeout,
                    const std::function<bool()> &cancelled, const detail::Sink &sink, std::string &error) {
     static const CURLcode initialized = curl_global_init(CURL_GLOBAL_DEFAULT);
-    if (initialized != CURLE_OK) { error = XDB_TR("Cannot initialize HTTPS downloader"); return false; }
+    if (initialized != CURLE_OK) { error = "Cannot initialize HTTPS downloader"; return false; }
     std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> curl(curl_easy_init(), curl_easy_cleanup);
-    if (!curl) { error = XDB_TR("Cannot create HTTPS downloader"); return false; }
-    if (!url.starts_with("https://")) { error = XDB_TR("DDI downloads require HTTPS"); return false; }
+    if (!curl) { error = "Cannot create HTTPS downloader"; return false; }
+    if (!url.starts_with("https://")) { error = "DDI downloads require HTTPS"; return false; }
     CurlContext context{&sink, &cancelled};
     std::array<char, CURL_ERROR_SIZE> buffer{};
     const auto milliseconds = static_cast<long>(std::clamp<int64_t>(timeout.count(), 1, std::numeric_limits<long>::max()));
-#define DDI_CURL_OPT(option, value) do { if (curl_easy_setopt(curl.get(), option, value) != CURLE_OK) { error = XDB_TR("Cannot configure HTTPS downloader"); return false; } } while (false)
+#define DDI_CURL_OPT(option, value) do { if (curl_easy_setopt(curl.get(), option, value) != CURLE_OK) { error = "Cannot configure HTTPS downloader"; return false; } } while (false)
     DDI_CURL_OPT(CURLOPT_URL, url.c_str());
 #if LIBCURL_VERSION_NUM >= 0x075500
     DDI_CURL_OPT(CURLOPT_PROTOCOLS_STR, "https");
@@ -267,7 +266,7 @@ bool curl_transfer(const std::string &url, uint64_t max_bytes, std::chrono::mill
     DDI_CURL_OPT(CURLOPT_CAINFO, static_cast<const char *>(nullptr));
     DDI_CURL_OPT(CURLOPT_CAPATH, static_cast<const char *>(nullptr));
 #else
-    error = XDB_TR("This Windows libcurl cannot use the native certificate store");
+    error = "This Windows libcurl cannot use the native certificate store";
     return false;
 #endif
 #endif
@@ -286,13 +285,13 @@ bool curl_transfer(const std::string &url, uint64_t max_bytes, std::chrono::mill
 #undef DDI_CURL_OPT
     const auto result = curl_easy_perform(curl.get());
     if (result != CURLE_OK) {
-        error = context.callback_failed ? XDB_TR("DDI download callback failed") :
-            std::string(XDB_TR("HTTPS DDI download failed: ")) + (buffer[0] ? buffer.data() : curl_easy_strerror(result));
+        error = context.callback_failed ? "DDI download callback failed" :
+            std::string("HTTPS DDI download failed: ") + (buffer[0] ? buffer.data() : curl_easy_strerror(result));
         return false;
     }
     long status = 0;
     if (curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &status) != CURLE_OK || status != 200) {
-        error = XDB_TR("DDI download did not return HTTP 200"); return false;
+        error = "DDI download did not return HTTP 200"; return false;
     }
     return true;
 }
@@ -323,30 +322,30 @@ std::optional<DownloadResult> download(const DownloadOptions &options, const Cat
                                       const Transfer &transfer, std::string &error, const DownloadTarget *target) {
     error.clear();
     try {
-        if (options.timeout <= std::chrono::seconds::zero()) throw std::runtime_error(XDB_TR("DDI download timeout must be positive"));
+        if (options.timeout <= std::chrono::seconds::zero()) throw std::runtime_error("DDI download timeout must be positive");
         const auto start = Clock::now();
         // Cap arithmetic before adding to a steady-clock time point.
-        if (options.timeout > std::chrono::hours(24)) throw std::runtime_error(XDB_TR("DDI download timeout exceeds 24 hours"));
+        if (options.timeout > std::chrono::hours(24)) throw std::runtime_error("DDI download timeout exceeds 24 hours");
         const auto deadline = start + options.timeout;
         auto stopped = [&] {
-            if (options.cancelled && options.cancelled()) { error = XDB_TR("DDI download cancelled"); return true; }
-            if (Clock::now() >= deadline) { error = XDB_TR("DDI download timed out"); return true; }
+            if (options.cancelled && options.cancelled()) { error = "DDI download cancelled"; return true; }
+            if (Clock::now() >= deadline) { error = "DDI download timed out"; return true; }
             return false;
         };
         if (stopped()) return std::nullopt;
         fs::path root = options.cache_root;
         if (root.empty()) { auto selected = default_cache_root(error); if (!selected) return std::nullopt; root = *selected; }
-        if (!root.is_absolute()) throw std::runtime_error(XDB_TR("DDI cache root must be an absolute path"));
+        if (!root.is_absolute()) throw std::runtime_error("DDI cache root must be an absolute path");
         check_catalog(catalog);
         fs::create_directories(root);
-        if (fs::is_symlink(fs::symlink_status(root))) throw std::runtime_error(XDB_TR("DDI cache root must not be a symbolic link"));
+        if (fs::is_symlink(fs::symlink_status(root))) throw std::runtime_error("DDI cache root must not be a symbolic link");
         const auto cache_name = std::string(kind_name(catalog.kind)) + "-" + catalog.build;
         const auto directory = root / cache_name;
         // Only a complete, fully rehashed cache is reused.
         if (fs::exists(directory) || fs::is_symlink(fs::symlink_status(directory))) {
             if (!validate(directory, catalog, error)) {
                 const auto utf8_path = directory.u8string();
-                error = std::string(XDB_TR("Existing DDI cache is invalid; remove this version directory and retry: ")) +
+                error = std::string("Existing DDI cache is invalid; remove this version directory and retry: ") +
                     std::string(utf8_path.begin(), utf8_path.end()) + " (" + error + ")";
                 return std::nullopt;
             }
@@ -355,7 +354,7 @@ std::optional<DownloadResult> download(const DownloadOptions &options, const Cat
             return DownloadResult{directory, catalog.build, catalog.source_url, true, catalog.kind};
         }
         const auto lock_path = root / (cache_name + ".lock");
-        if (!fs::create_directory(lock_path)) throw std::runtime_error(XDB_TR("Another DDI download owns this version lock; retry after it finishes (remove the lock only if that process has exited)"));
+        if (!fs::create_directory(lock_path)) throw std::runtime_error("Another DDI download owns this version lock; retry after it finishes (remove the lock only if that process has exited)");
         RemovePath lock{lock_path};
         if (fs::exists(directory)) {
             if (!validate(directory, catalog, error) || stopped()) return std::nullopt;
@@ -363,46 +362,46 @@ std::optional<DownloadResult> download(const DownloadOptions &options, const Cat
             return DownloadResult{directory, catalog.build, catalog.source_url, true, catalog.kind};
         }
         std::vector<uint8_t> nonce(16);
-        if (RAND_bytes(nonce.data(), static_cast<int>(nonce.size())) != 1) throw std::runtime_error(XDB_TR("Cannot generate DDI staging directory name"));
+        if (RAND_bytes(nonce.data(), static_cast<int>(nonce.size())) != 1) throw std::runtime_error("Cannot generate DDI staging directory name");
         const auto staging = root / ("." + cache_name + ".partial-" + util::hex_encode(nonce));
-        if (!fs::create_directory(staging)) throw std::runtime_error(XDB_TR("Cannot create unique DDI staging directory"));
+        if (!fs::create_directory(staging)) throw std::runtime_error("Cannot create unique DDI staging directory");
         RemovePath cleanup{staging};
         fs::permissions(staging, fs::perms::owner_all, fs::perm_options::replace);
         for (const auto &asset : catalog.assets) {
             if (stopped()) return std::nullopt;
             std::ofstream file(staging / asset.name, std::ios::binary | std::ios::trunc);
-            if (!file) throw std::runtime_error(std::string(XDB_TR("Cannot create DDI download file: ")) + asset.name);
+            if (!file) throw std::runtime_error(std::string("Cannot create DDI download file: ") + asset.name);
             uint64_t received = 0;
             const Sink sink = [&](const char *data, size_t length) {
                 if (stopped()) return false;
-                if (length > asset.size - received) { error = std::string(XDB_TR("DDI download exceeds pinned file size: ")) + asset.name; return false; }
+                if (length > asset.size - received) { error = std::string("DDI download exceeds pinned file size: ") + asset.name; return false; }
                 file.write(data, static_cast<std::streamsize>(length));
-                if (!file) { error = std::string(XDB_TR("Cannot write DDI download file: ")) + asset.name; return false; }
+                if (!file) { error = std::string("Cannot write DDI download file: ") + asset.name; return false; }
                 received += length;
                 if (options.progress) options.progress(asset.name, received, asset.size);
                 return true;
             };
             std::string transfer_error;
             const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - Clock::now());
-            if (remaining.count() <= 0) { error = XDB_TR("DDI download timed out"); return std::nullopt; }
+            if (remaining.count() <= 0) { error = "DDI download timed out"; return std::nullopt; }
             if (!transfer(catalog.source_url + "/" + asset.name, asset.size, remaining, stopped, sink, transfer_error)) {
                 if (error.empty()) error = std::move(transfer_error);
-                if (error.empty()) error = XDB_TR("DDI download failed");
+                if (error.empty()) error = "DDI download failed";
                 return std::nullopt;
             }
             file.flush();
-            if (!file) throw std::runtime_error(std::string(XDB_TR("Cannot flush DDI download file: ")) + asset.name);
+            if (!file) throw std::runtime_error(std::string("Cannot flush DDI download file: ") + asset.name);
             file.close();
-            if (!file) throw std::runtime_error(std::string(XDB_TR("Cannot close DDI download file: ")) + asset.name);
-            if (received != asset.size) throw std::runtime_error(std::string(XDB_TR("Incomplete DDI download: ")) + asset.name);
+            if (!file) throw std::runtime_error(std::string("Cannot close DDI download file: ") + asset.name);
+            if (received != asset.size) throw std::runtime_error(std::string("Incomplete DDI download: ") + asset.name);
         }
         if (stopped() || !validate_files(staging, catalog, error, false, target)) return std::nullopt;
         std::ofstream complete(staging / ".complete", std::ios::binary);
         complete << marker(catalog);
         complete.close();
-        if (!complete) throw std::runtime_error(XDB_TR("Cannot write DDI completion marker"));
+        if (!complete) throw std::runtime_error("Cannot write DDI completion marker");
         if (stopped()) return std::nullopt;
-        if (fs::exists(directory)) throw std::runtime_error(XDB_TR("DDI version directory appeared during download; refusing to overwrite it"));
+        if (fs::exists(directory)) throw std::runtime_error("DDI version directory appeared during download; refusing to overwrite it");
         fs::rename(staging, directory);
         cleanup.path.clear();
         return DownloadResult{directory, catalog.build, catalog.source_url, false, catalog.kind};
@@ -424,7 +423,7 @@ std::optional<fs::path> default_cache_root(std::string &error) {
     };
     auto xdg = environment_path("XDG_CACHE_HOME");
     if (!xdg.empty()) {
-        if (!xdg.is_absolute()) { error = XDB_TR("XDG_CACHE_HOME must be an absolute path"); return std::nullopt; }
+        if (!xdg.is_absolute()) { error = "XDG_CACHE_HOME must be an absolute path"; return std::nullopt; }
         return xdg / "xdb" / "ddi";
     }
 #ifdef _WIN32
@@ -437,7 +436,7 @@ std::optional<fs::path> default_cache_root(std::string &error) {
     auto root = environment_path("HOME");
     if (root.is_absolute()) return root / ".cache" / "xdb" / "ddi";
 #endif
-    error = XDB_TR("No absolute platform cache directory is available; specify --ddi-directory");
+    error = "No absolute platform cache directory is available; specify --ddi-directory";
     return std::nullopt;
 }
 
@@ -456,7 +455,7 @@ std::optional<DownloadResult> download_for_target(const DownloadOptions &options
     case Kind::Cryptex: catalog = &detail::cryptex_catalog(); break;
     }
     if (!catalog) {
-        error = XDB_TR("No pinned Classic DDI exists for the requested OS major.minor version");
+        error = "No pinned Classic DDI exists for the requested OS major.minor version";
         return std::nullopt;
     }
     return detail::download(options, *catalog, curl_transfer, error, &target);

@@ -1,5 +1,4 @@
 #include "util/Hex.h"
-#include "i18n/Translation.h"
 
 #include <algorithm>
 
@@ -20,12 +19,12 @@ std::string hex_encode(std::span<const uint8_t> bytes) {
     return result;
 }
 std::optional<std::vector<uint8_t>> hex_decode(std::string_view text, std::string &error) {
-    if (text.size() % 2 != 0) { error = XDB_TR("Hex length must be even"); return std::nullopt; }
+    if (text.size() % 2 != 0) { error = "Hex length must be even"; return std::nullopt; }
     std::vector<uint8_t> bytes;
     bytes.reserve(text.size() / 2);
     for (size_t i = 0; i < text.size(); i += 2) {
         const int hi = nibble(text[i]), lo = nibble(text[i + 1]);
-        if (hi < 0 || lo < 0) { error = XDB_TR("Invalid hex character"); return std::nullopt; }
+        if (hi < 0 || lo < 0) { error = "Invalid hex character"; return std::nullopt; }
         bytes.push_back(static_cast<uint8_t>((hi << 4) | lo));
     }
     return bytes;

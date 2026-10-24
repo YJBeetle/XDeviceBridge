@@ -1,4 +1,3 @@
-#include "i18n/Translation.h"
 #include "transport/TcpConnect.h"
 
 #ifndef _WIN32
@@ -28,7 +27,7 @@ std::optional<Socket> connect_tcp(const std::string &host, uint16_t port, int ti
     addrinfo *first = nullptr;
     const int rc = ::getaddrinfo(host.c_str(), service.c_str(), &hints, &first);
     if (rc != 0 || first == nullptr) {
-        err = XDB_TR("Failed to resolve address ") + host + XDB_TR(": ") + (rc == 0 ? XDB_TR("no results") : gai_strerror(rc));
+        err = "Failed to resolve address " + host + ": " + (rc == 0 ? "no results" : gai_strerror(rc));
         return std::nullopt;
     }
     std::unique_ptr<addrinfo, void (*)(addrinfo *)> addresses(first, ::freeaddrinfo);
@@ -56,7 +55,7 @@ std::optional<Socket> connect_tcp(const std::string &host, uint16_t port, int ti
             flags = ::fcntl(fd, F_GETFL, 0);
             if (flags < 0 || ::fcntl(fd, F_SETFL, flags | O_NONBLOCK) != 0) {
 #endif
-                last_error = XDB_TR("Failed to enable nonblocking mode: ") + socket_error_message();
+                last_error = "Failed to enable nonblocking mode: " + socket_error_message();
                 continue;
             }
         }
@@ -79,8 +78,8 @@ std::optional<Socket> connect_tcp(const std::string &host, uint16_t port, int ti
                 ready = wait_socket(fd, true, static_cast<int>(remaining));
             } while (ready < 0 && socket_error() == kSocketInterrupted);
             if (ready <= 0) {
-                last_error = ready == 0 ? XDB_TR("Connection timed out") + std::to_string(timeout_ms) + "ms"
-                                        : XDB_TR("Failed to wait for connection: ") + std::string(socket_error_message());
+                last_error = ready == 0 ? "Connection timed out" + std::to_string(timeout_ms) + "ms"
+                                        : "Failed to wait for connection: " + std::string(socket_error_message());
                 continue;
             }
             int so_error = 0;
@@ -97,12 +96,12 @@ std::optional<Socket> connect_tcp(const std::string &host, uint16_t port, int ti
 #else
         if (nonblocking && ::fcntl(fd, F_SETFL, flags) != 0) {
 #endif
-            last_error = XDB_TR("Failed to restore blocking mode: ") + std::string(socket_error_message());
+            last_error = "Failed to restore blocking mode: " + std::string(socket_error_message());
             continue;
         }
         return socket;
     }
-    err = XDB_TR("Cannot connect to ") + host + ":" + service + (last_error.empty() ? std::string() : "：" + last_error);
+    err = "Cannot connect to " + host + ":" + service + (last_error.empty() ? std::string() : "：" + last_error);
     return std::nullopt;
 }
 
@@ -120,8 +119,8 @@ std::vector<detail::TcpAddress> resolve_addresses(const std::string &host, uint1
     std::unique_ptr<addrinfo, void (*)(addrinfo *)> owner(first, ::freeaddrinfo);
     std::vector<detail::TcpAddress> result;
     if (rc != 0 || !first) {
-        if (!numeric) err = XDB_TR("Failed to resolve address ") + host + ": " +
-                           (rc ? gai_strerror(rc) : XDB_TR("no results"));
+        if (!numeric) err = "Failed to resolve address " + host + ": " +
+                           (rc ? gai_strerror(rc) : "no results");
         return result;
     }
     for (auto *ai = first; ai; ai = ai->ai_next) {
@@ -161,7 +160,7 @@ std::optional<Socket> detail::connect_tcp_bounded_with_resolver(
         unsigned count = slots->active.load();
         do {
             if (count >= 2) {
-                err = XDB_TR("Too many outstanding hostname resolutions; retry later");
+                err = "Too many outstanding hostname resolutions; retry later";
                 return {};
             }
         } while (!slots->active.compare_exchange_weak(count, count + 1));
@@ -171,7 +170,7 @@ std::optional<Socket> detail::connect_tcp_bounded_with_resolver(
                 std::vector<TcpAddress> found;
                 std::string error;
                 try { found = resolver(host, port, error); }
-                catch (...) { error = XDB_TR("Hostname resolution failed"); }
+                catch (...) { error = "Hostname resolution failed"; }
                 {
                     std::lock_guard lock(job->mutex);
                     job->addresses = std::move(found); job->error = std::move(error); job->done = true;
@@ -181,7 +180,7 @@ std::optional<Socket> detail::connect_tcp_bounded_with_resolver(
             }).detach();
         } catch (...) {
             slots->active.fetch_sub(1);
-            err = XDB_TR("Cannot start hostname resolution"); return {};
+            err = "Cannot start hostname resolution"; return {};
         }
         std::unique_lock lock(job->mutex);
         while (!job->done) {
@@ -191,7 +190,7 @@ std::optional<Socket> detail::connect_tcp_bounded_with_resolver(
         if (!budget.check(err)) return {};
         addresses = std::move(job->addresses);
         if (addresses.empty()) {
-            err = job->error.empty() ? XDB_TR("Hostname resolution returned no addresses") : job->error;
+            err = job->error.empty() ? "Hostname resolution returned no addresses" : job->error;
             return {};
         }
     }
@@ -240,7 +239,7 @@ std::optional<Socket> detail::connect_tcp_bounded_with_resolver(
         return socket;
     }
     if (!budget.check(err)) return {};
-    err = XDB_TR("Cannot connect to ") + host + ":" + std::to_string(port) +
+    err = "Cannot connect to " + host + ":" + std::to_string(port) +
           (last_error.empty() ? std::string{} : ": " + last_error);
     return {};
 }

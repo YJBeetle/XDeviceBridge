@@ -1,6 +1,5 @@
 #pragma once
 
-#include "i18n/Translation.h"
 
 #include <cstdint>
 #include <functional>
@@ -27,7 +26,7 @@ public:
     /// 到底回不回话"（iOS 27 上签名有效但 identifier 未知时它**不回**，docs §25.6）。
     virtual bool wait_readable(int ms, std::string &err) {
         (void)ms;
-        err = XDB_TR("This stream does not support waiting for readability");
+        err = "This stream does not support waiting for readability";
         return false;
     }
 };

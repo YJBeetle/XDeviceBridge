@@ -1,4 +1,3 @@
-#include "i18n/Translation.h"
 // 当前 Apple 构建的 AAC-ELD 后端，输入与输出约定见 AudioDecoder.h。
 #include "decode/AudioDecoder.h"
 #include "decode/AudioToolboxStatus.h"
@@ -83,7 +82,7 @@ public:
         auto *list = static_cast<AudioBufferList *>(
             std::malloc(offsetof(AudioBufferList, mBuffers) + sizeof(AudioBuffer)));
         if (list == nullptr) {
-            err = XDB_TR("Failed to allocate AudioBufferList");
+            err = "Failed to allocate AudioBufferList";
             return false;
         }
         list->mNumberBuffers = 1;
@@ -96,7 +95,7 @@ public:
             AudioConverterFillComplexBuffer(conv_, input_proc, &in, &frames, list, nullptr);
         if (st != noErr) {
             std::free(list);
-            err = XDB_TR("AudioConverterFillComplexBuffer failed: ") + xdb::decode::detail::osstatus_text(st);
+            err = "AudioConverterFillComplexBuffer failed: " + xdb::decode::detail::osstatus_text(st);
             return false;
         }
         const std::size_t samples =
@@ -143,7 +142,7 @@ std::unique_ptr<AudioDecoder> create_audio_decoder(int sample_rate, int channels
     AudioConverterRef conv = nullptr;
     const OSStatus st = AudioConverterNew(&src, &dst, &conv);
     if (st != noErr) {
-        err = XDB_TR("AudioConverterNew failed: ") + xdb::decode::detail::osstatus_text(st);
+        err = "AudioConverterNew failed: " + xdb::decode::detail::osstatus_text(st);
         return nullptr;
     }
     // 当前适配器不设置 kAudioConverterDecompressionMagicCookie，以上述 ASBD

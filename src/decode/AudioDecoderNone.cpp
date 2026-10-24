@@ -14,7 +14,7 @@ std::unique_ptr<AudioDecoder> create_audio_decoder(int sample_rate, int channels
     (void)sample_rate;
     (void)channels;
     (void)frame_length;
-    err = XDB_TR(kNoAudioDecoderMessage);
+    err = kNoAudioDecoderMessage;
     return nullptr;
 #endif
 }

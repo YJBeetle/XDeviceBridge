@@ -4,7 +4,6 @@
 #include "ddi/Mounter.h"
 #include "ddi/ServiceTransport.h"
 #include "ddi/Tss.h"
-#include "i18n/Translation.h"
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
@@ -37,9 +36,9 @@ bool prepare_ddi(const PrepareOptions &o, std::string &error, const Event &event
         event("progress", {{"message", buffer}});
     };
     auto fail = [&] {
-        emit(XDB_TR("DDI installation failed: %s\n"), safe_text(error).c_str());
-        emit(XDB_TR("An interrupted installation may already have taken effect; check device state before "
-                    "replacing again.\n"));
+        emit("DDI installation failed: %s\n", safe_text(error).c_str());
+        emit("An interrupted installation may already have taken effect; check device state before "
+                    "replacing again.\n");
         return false;
     };
     ddi::DownloadTarget target;
@@ -71,7 +70,7 @@ bool prepare_ddi(const PrepareOptions &o, std::string &error, const Event &event
             return fail();
         const auto *values = reply.find("Value");
         if (!values || !values->is_dict() || reply.find("Error")) {
-            error = XDB_TR("DDI target metadata is missing its OS version or product model");
+            error = "DDI target metadata is missing its OS version or product model";
             return fail();
         }
         auto text = [&](const char *key) {
@@ -111,11 +110,11 @@ bool prepare_ddi(const PrepareOptions &o, std::string &error, const Event &event
         ecid = number("UniqueChipID");
     }
     if (cancelled && cancelled()) {
-        error = XDB_TR("DDI installation cancelled");
+        error = "DDI installation cancelled";
         return fail();
     }
     if (target.product_type.empty()) {
-        error = XDB_TR("DDI target metadata is missing its OS version or product model");
+        error = "DDI target metadata is missing its OS version or product model";
         return fail();
     }
     auto selected = ddi::select_for_version(target.system_version, error);
@@ -146,16 +145,16 @@ bool prepare_ddi(const PrepareOptions &o, std::string &error, const Event &event
                 return fail();
             if (mounted->state != ddi::MountState::NotMounted) {
                 if (selected->kind == ddi::Kind::Classic && mounted->signature_matches != true) {
-                    error = XDB_TR("Mounted Classic DDI signature does not match the requested image; enable "
-                                   "replacement explicitly");
+                    error = "Mounted Classic DDI signature does not match the requested image; enable "
+                                   "replacement explicitly";
                     return fail();
                 }
-                emit(XDB_TR("DDI already mounted: %s (no new installation)\n"), mounted->image_type.c_str());
+                emit("DDI already mounted: %s (no new installation)\n", mounted->image_type.c_str());
                 return true;
             }
         }
     }
-    emit(XDB_TR("DDI target: OS %s, model %s, image type %s\n"), safe_text(target.system_version).c_str(),
+    emit("DDI target: OS %s, model %s, image type %s\n", safe_text(target.system_version).c_str(),
          safe_text(target.product_type).c_str(), std::string(ddi::kind_name(selected->kind)).c_str());
     ddi::DownloadOptions download;
     download.cancelled = cancelled;
@@ -173,7 +172,7 @@ bool prepare_ddi(const PrepareOptions &o, std::string &error, const Event &event
     uint64_t last_bytes = 0;
     auto progress = [&](const std::string &file, uint64_t received, uint64_t total) {
         if (last_file != file || received == total || received >= last_bytes + 1024 * 1024) {
-            emit(XDB_TR("DDI transfer: %s (%llu/%llu bytes)\n"), safe_text(file).c_str(),
+            emit("DDI transfer: %s (%llu/%llu bytes)\n", safe_text(file).c_str(),
                  static_cast<unsigned long long>(received), static_cast<unsigned long long>(total));
             last_file = file;
             last_bytes = received;
@@ -192,7 +191,7 @@ bool prepare_ddi(const PrepareOptions &o, std::string &error, const Event &event
             return fail();
     }
     if (cancelled && cancelled()) {
-        error = XDB_TR("DDI installation cancelled");
+        error = "DDI installation cancelled";
         return fail();
     }
     const auto deadline = steady_clock::now() + seconds(o.ddi_install_timeout);
@@ -251,15 +250,15 @@ bool prepare_ddi(const PrepareOptions &o, std::string &error, const Event &event
         if (!mounted)
             return fail();
         if (mounted->state == ddi::MountState::NotMounted) {
-            error = XDB_TR("DDI Cryptex is installed but its developer image is not mounted");
+            error = "DDI Cryptex is installed but its developer image is not mounted";
             return fail();
         }
-        emit(result->already_installed ? XDB_TR("DDI already installed: %s %s (no new installation)\n")
-                                       : XDB_TR("DDI installed and verified: %s %s\n"),
+        emit(result->already_installed ? "DDI already installed: %s %s (no new installation)\n"
+                                       : "DDI installed and verified: %s %s\n",
              safe_text(result->identifier).c_str(), safe_text(result->version).c_str());
     } else {
         if (selected->kind == ddi::Kind::Personalized && !ecid) {
-            error = XDB_TR("DDI installation requires the device ECID");
+            error = "DDI installation requires the device ECID";
             return fail();
         }
         auto adapter = service(remaining());
@@ -287,8 +286,8 @@ bool prepare_ddi(const PrepareOptions &o, std::string &error, const Event &event
         if (!result)
             return fail();
         emit(result->state == ddi::MountState::AlreadyMounted
-                 ? XDB_TR("DDI already mounted: %s (no new installation)\n")
-                 : XDB_TR("DDI mounted and verified: %s\n"),
+                 ? "DDI already mounted: %s (no new installation)\n"
+                 : "DDI mounted and verified: %s\n",
              safe_text(result->image_type).c_str());
     }
     return true;

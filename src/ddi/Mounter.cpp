@@ -1,7 +1,6 @@
 #include "util/Hex.h"
 #include "ddi/Mounter.h"
 #include "ddi/DownloadInternal.h"
-#include "i18n/Translation.h"
 #include <openssl/evp.h>
 #include <algorithm>
 #include <array>
@@ -40,32 +39,32 @@ struct Session {
     bool copy_unsupported = false;
     Session(PlistService &s, const MountOptions &o) : service(s), options(o) {
         if (o.timeout <= std::chrono::seconds::zero() || o.timeout > std::chrono::hours(24))
-            throw std::runtime_error(XDB_TR("DDI install timeout must be positive and at most 24 hours"));
+            throw std::runtime_error("DDI install timeout must be positive and at most 24 hours");
         deadline = Clock::now() + o.timeout;
     }
     std::chrono::milliseconds remaining() const {
-        if (options.cancelled && options.cancelled()) throw std::runtime_error(XDB_TR("DDI install cancelled"));
+        if (options.cancelled && options.cancelled()) throw std::runtime_error("DDI install cancelled");
         auto left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - Clock::now());
-        if (left <= std::chrono::milliseconds::zero()) throw std::runtime_error(XDB_TR("DDI install timed out"));
+        if (left <= std::chrono::milliseconds::zero()) throw std::runtime_error("DDI install timed out");
         return left;
     }
     V check_reply(std::optional<V> reply, std::string &error) {
         remaining();
-        if (!reply) throw std::runtime_error(error.empty() ? XDB_TR("DDI service disconnected without a reply") : safe_text(error));
+        if (!reply) throw std::runtime_error(error.empty() ? "DDI service disconnected without a reply" : safe_text(error));
         size_t budget = 2 * 1024 * 1024, nodes = 0;
         if (!reply->is_dict() || !bounded_value(*reply, 0, budget, nodes))
-            throw std::runtime_error(XDB_TR("Invalid or oversized DDI service reply"));
+            throw std::runtime_error("Invalid or oversized DDI service reply");
         return std::move(*reply);
     }
     V request(const V &request) {
-        if (!service.request) throw std::runtime_error(XDB_TR("DDI service request callback is missing"));
+        if (!service.request) throw std::runtime_error("DDI service request callback is missing");
         std::string error;
         return check_reply(service.request(request, remaining(), error), error);
     }
     void reconnect() {
-        if (!service.reconnect) throw std::runtime_error(XDB_TR("DDI service reconnect callback is missing"));
+        if (!service.reconnect) throw std::runtime_error("DDI service reconnect callback is missing");
         std::string error;
-        if (!service.reconnect(remaining(), error)) throw std::runtime_error(error.empty() ? XDB_TR("Cannot reconnect DDI service") : safe_text(error));
+        if (!service.reconnect(remaining(), error)) throw std::runtime_error(error.empty() ? "Cannot reconnect DDI service" : safe_text(error));
         remaining();
     }
 };
@@ -73,7 +72,7 @@ V command(std::string name) { auto v = V::Dict(); v.set("Command", V::Str(std::m
 std::string device_error(const V &reply) {
     const auto *e = reply.find("Error");
     if (!e) return {};
-    if (!e->is_string() || e->string.empty()) return XDB_TR("Invalid DDI service error field");
+    if (!e->is_string() || e->string.empty()) return "Invalid DDI service error field";
     std::string text = safe_text(e->string);
     if (auto *detail = reply.find("DetailedError"); detail && detail->is_string()) text += ": " + safe_text(detail->string);
     return text;
@@ -83,7 +82,7 @@ void successful(const V &reply, std::string_view status) {
     if (!error.empty()) throw std::runtime_error(error);
     auto *value = reply.find("Status");
     if (!value || !value->is_string() || value->string != status)
-        throw std::runtime_error(std::string(XDB_TR("Unexpected DDI service status; expected ")) + std::string(status));
+        throw std::runtime_error(std::string("Unexpected DDI service status; expected ") + std::string(status));
 }
 MountResult inspect(Session &s, Kind kind) {
     MountResult result; result.image_type = image_type(kind);
@@ -91,20 +90,20 @@ MountResult inspect(Session &s, Kind kind) {
     auto reply = s.request(request);
     auto error = device_error(reply); if (!error.empty()) throw std::runtime_error(error);
     auto *present = reply.find("ImagePresent");
-    if (present && !present->is_bool()) throw std::runtime_error(XDB_TR("Invalid DDI ImagePresent field"));
+    if (present && !present->is_bool()) throw std::runtime_error("Invalid DDI ImagePresent field");
     auto *signature = reply.find("ImageSignature");
     if (signature && signature->is_array()) {
-        if (signature->array.size() > 128) throw std::runtime_error(XDB_TR("Too many mounted DDI signatures"));
+        if (signature->array.size() > 128) throw std::runtime_error("Too many mounted DDI signatures");
         for (const auto &entry : signature->array) {
             if (entry.kind != plist::Kind::Data || entry.data.size() > max_ticket)
-                throw std::runtime_error(XDB_TR("Invalid mounted DDI signature"));
+                throw std::runtime_error("Invalid mounted DDI signature");
         }
         if (!signature->array.empty()) signature = &signature->array.front(); else signature = nullptr;
     }
     if (signature && (signature->kind != plist::Kind::Data || signature->data.size() > max_ticket))
-        throw std::runtime_error(XDB_TR("Invalid mounted DDI signature"));
+        throw std::runtime_error("Invalid mounted DDI signature");
     if (signature && !signature->data.empty()) {
-        if (present && !present->boolean) throw std::runtime_error(XDB_TR("Contradictory DDI lookup reply"));
+        if (present && !present->boolean) throw std::runtime_error("Contradictory DDI lookup reply");
         result.state = MountState::AlreadyMounted; result.signature = signature->data;
         result.verification = "LookupImage signature"; return result;
     }
@@ -119,27 +118,27 @@ MountResult inspect(Session &s, Kind kind) {
         else {
             auto detail = device_error(devices); if (!detail.empty()) throw std::runtime_error(detail);
             if (!entries || !entries->is_array() || entries->array.size() > 1024)
-                throw std::runtime_error(XDB_TR("Invalid DDI CopyDevices reply"));
+                throw std::runtime_error("Invalid DDI CopyDevices reply");
             for (const auto &entry : entries->array) {
-                if (!entry.is_dict()) throw std::runtime_error(XDB_TR("Invalid DDI mounted image entry"));
+                if (!entry.is_dict()) throw std::runtime_error("Invalid DDI mounted image entry");
                 auto *type = entry.find("DiskImageType");
                 if (type && type->is_string() && type->string == result.image_type) {
                     // CopyDevices can describe attached disk images. Their
                     // type alone does not establish a mounted developer image.
                     const auto *mounted = entry.find("IsMounted");
                     if (!mounted || !mounted->is_bool())
-                        throw std::runtime_error(XDB_TR("Invalid DDI mounted image entry"));
+                        throw std::runtime_error("Invalid DDI mounted image entry");
                     if (!mounted->boolean) continue;
                     const auto *path = entry.find("MountPath");
                     const std::string_view expected = kind == Kind::Classic ? "/Developer" : "/System/Developer";
                     if (!path || !path->is_string() || path->string != expected)
-                        throw std::runtime_error(XDB_TR("Invalid DDI mounted image entry"));
+                        throw std::runtime_error("Invalid DDI mounted image entry");
                     result.state = MountState::AlreadyMounted; result.verification = "CopyDevices entry"; return result;
                 }
             }
         }
     }
-    if (present && present->boolean) throw std::runtime_error(XDB_TR("DDI lookup claims presence without verifiable mounted image"));
+    if (present && present->boolean) throw std::runtime_error("DDI lookup claims presence without verifiable mounted image");
     return result;
 }
 void developer_mode(Session &s, uint32_t major) {
@@ -149,42 +148,42 @@ void developer_mode(Session &s, uint32_t major) {
     auto reply = s.request(command("QueryDeveloperModeStatus"));
     auto error = device_error(reply); if (!error.empty()) throw std::runtime_error(error);
     const auto *enabled = reply.find("DeveloperModeStatus");
-    if (!enabled || !enabled->is_bool()) throw std::runtime_error(XDB_TR("Cannot verify device Developer Mode"));
-    if (!enabled->boolean) throw std::runtime_error(XDB_TR("Enable Developer Mode on the device before installing DDI"));
+    if (!enabled || !enabled->is_bool()) throw std::runtime_error("Cannot verify device Developer Mode");
+    if (!enabled->boolean) throw std::runtime_error("Enable Developer Mode on the device before installing DDI");
 }
 void unmount(Session &s, Kind kind) {
     auto request = command("UnmountImage");
     request.set("MountPath", V::Str(kind == Kind::Classic ? "/Developer" : "/System/Developer"));
     auto reply = s.request(request); successful(reply, "Complete");
     if (inspect(s, kind).state != MountState::NotMounted)
-        throw std::runtime_error(XDB_TR("DDI remains mounted after unmount request"));
+        throw std::runtime_error("DDI remains mounted after unmount request");
 }
 std::vector<uint8_t> hash_bytes(const std::vector<uint8_t> &data, const EVP_MD *algorithm, bool git) {
     std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> ctx(EVP_MD_CTX_new(), EVP_MD_CTX_free);
-    if (!ctx || EVP_DigestInit_ex(ctx.get(), algorithm, nullptr) != 1) throw std::runtime_error(XDB_TR("Cannot hash DDI asset"));
+    if (!ctx || EVP_DigestInit_ex(ctx.get(), algorithm, nullptr) != 1) throw std::runtime_error("Cannot hash DDI asset");
     if (git) {
         auto prefix = "blob " + std::to_string(data.size()); prefix.push_back('\0');
-        if (EVP_DigestUpdate(ctx.get(), prefix.data(), prefix.size()) != 1) throw std::runtime_error(XDB_TR("Cannot hash DDI asset"));
+        if (EVP_DigestUpdate(ctx.get(), prefix.data(), prefix.size()) != 1) throw std::runtime_error("Cannot hash DDI asset");
     }
     std::vector<uint8_t> output(EVP_MAX_MD_SIZE); unsigned size = 0;
     if (EVP_DigestUpdate(ctx.get(), data.data(), data.size()) != 1 || EVP_DigestFinal_ex(ctx.get(), output.data(), &size) != 1)
-        throw std::runtime_error(XDB_TR("Cannot hash DDI asset"));
+        throw std::runtime_error("Cannot hash DDI asset");
     output.resize(size); return output;
 }
 std::map<std::string, std::vector<uint8_t>> load_assets(Session &s, const DownloadResult &download, const detail::Catalog &catalog) {
     std::map<std::string, std::vector<uint8_t>> assets;
     for (const auto &asset : catalog.assets) {
         s.remaining();
-        if (asset.size > max_file) throw std::runtime_error(XDB_TR("DDI asset exceeds install size limit"));
+        if (asset.size > max_file) throw std::runtime_error("DDI asset exceeds install size limit");
         std::ifstream file(download.directory / asset.name, std::ios::binary);
         std::vector<uint8_t> bytes(static_cast<size_t>(asset.size));
         if (!file.read(reinterpret_cast<char *>(bytes.data()), static_cast<std::streamsize>(bytes.size())) || file.peek() != EOF)
-            throw std::runtime_error(XDB_TR("Cannot read complete DDI install asset"));
+            throw std::runtime_error("Cannot read complete DDI install asset");
         // Hash the actual snapshot sent to the device, not only the earlier
         // on-disk validation. Mutation after validation cannot alter upload.
         if ((!asset.sha256.empty() && util::hex_encode(hash_bytes(bytes, EVP_sha256(), false)) != asset.sha256) ||
             (!asset.git_blob_sha1.empty() && util::hex_encode(hash_bytes(bytes, EVP_sha1(), true)) != asset.git_blob_sha1))
-            throw std::runtime_error(XDB_TR("DDI install asset changed after cache validation"));
+            throw std::runtime_error("DDI install asset changed after cache validation");
         assets.emplace(asset.name, std::move(bytes));
     }
     return assets;
@@ -208,7 +207,7 @@ std::optional<MountResult> detail::inspect_mounted_with_catalog(PlistService &se
         return a.name == "DeveloperDiskImage.dmg.signature";
     });
     if (asset == catalog.assets.end() || (asset->sha256.empty() && asset->git_blob_sha1.empty())) {
-        error = XDB_TR("Classic DDI catalog has no pinned signature digest"); return std::nullopt;
+        error = "Classic DDI catalog has no pinned signature digest"; return std::nullopt;
     }
     try {
         result->signature_matches = result->signature.size() == asset->size &&
@@ -224,7 +223,7 @@ std::optional<MountResult> inspect_mounted(PlistService &service, const Download
     if (selection->kind != Kind::Classic) return inspect_mounted(service, selection->kind, options, error);
     const auto *catalog = detail::classic_catalog(selection->version);
     if (!catalog) {
-        error = XDB_TR("No pinned Classic DDI exists for the requested OS major.minor version"); return std::nullopt;
+        error = "No pinned Classic DDI exists for the requested OS major.minor version"; return std::nullopt;
     }
     return detail::inspect_mounted_with_catalog(service, *catalog, options, error);
 }
@@ -238,12 +237,12 @@ std::optional<MountResult> mount_image_with_catalog(PlistService &service, const
     error.clear();
     try {
         Session s(service, options); s.remaining();
-        if (catalog.kind == Kind::Cryptex) throw std::runtime_error(XDB_TR("Cryptex DDI requires the cryptexd installer"));
+        if (catalog.kind == Kind::Cryptex) throw std::runtime_error("Cryptex DDI requires the cryptexd installer");
         if (download.kind != catalog.kind || download.build != catalog.build)
-            throw std::runtime_error(XDB_TR("DDI install result does not match its catalog"));
+            throw std::runtime_error("DDI install result does not match its catalog");
         auto version = parse_product_version(target.system_version, error);
         auto selected = version ? select_for_version(*version, error) : std::nullopt;
-        if (!selected || selected->kind != catalog.kind) throw std::runtime_error(XDB_TR("DDI install category does not match device OS"));
+        if (!selected || selected->kind != catalog.kind) throw std::runtime_error("DDI install category does not match device OS");
         if (!validate(download.directory, catalog, error, &target)) throw std::runtime_error(error);
         auto assets = load_assets(s, download, catalog);
         auto existing = inspect(s, catalog.kind);
@@ -251,7 +250,7 @@ std::optional<MountResult> mount_image_with_catalog(PlistService &service, const
             if (catalog.kind == Kind::Classic) {
                 existing.signature_matches = existing.signature == assets.at("DeveloperDiskImage.dmg.signature");
                 if (!*existing.signature_matches)
-                    throw std::runtime_error(XDB_TR("Mounted Classic DDI signature does not match the requested image; enable replacement explicitly"));
+                    throw std::runtime_error("Mounted Classic DDI signature does not match the requested image; enable replacement explicitly");
             }
             return existing;
         }
@@ -260,16 +259,16 @@ std::optional<MountResult> mount_image_with_catalog(PlistService &service, const
         const auto &image = assets.at(catalog.kind == Kind::Classic ? "DeveloperDiskImage.dmg" : "Image.dmg");
         if (catalog.kind == Kind::Classic) signature = assets.at("DeveloperDiskImage.dmg.signature");
         else {
-            if (!options.personalize || !ecid) throw std::runtime_error(XDB_TR("DDI personalization requires a ticket callback and device ECID"));
+            if (!options.personalize || !ecid) throw std::runtime_error("DDI personalization requires a ticket callback and device ECID");
             auto identifiers_reply = s.request(command("QueryPersonalizationIdentifiers"));
             auto e = device_error(identifiers_reply); if (!e.empty()) throw std::runtime_error(e);
             auto *identifiers = identifiers_reply.find("PersonalizationIdentifiers");
             auto board = identifiers ? unsigned_number(identifiers->find("BoardId")) : std::nullopt;
             auto chip = identifiers ? unsigned_number(identifiers->find("ChipID")) : std::nullopt;
             if (!identifiers || !identifiers->is_dict() || !board || !chip)
-                throw std::runtime_error(XDB_TR("Invalid DDI personalization identifiers"));
+                throw std::runtime_error("Invalid DDI personalization identifiers");
             if ((target.board_id && target.board_id != board) || (target.chip_id && target.chip_id != chip))
-                throw std::runtime_error(XDB_TR("DDI device hardware identity changed"));
+                throw std::runtime_error("DDI device hardware identity changed");
             DownloadTarget confirmed = target; confirmed.board_id = board; confirmed.chip_id = chip;
             if (!validate(download.directory, catalog, error, &confirmed)) throw std::runtime_error(error);
             auto nonce_request = command("QueryNonce"); nonce_request.set("PersonalizedImageType", V::Str("DeveloperDiskImage"));
@@ -277,46 +276,46 @@ std::optional<MountResult> mount_image_with_catalog(PlistService &service, const
             e = device_error(nonce_reply); if (!e.empty()) throw std::runtime_error(e);
             auto *nonce = nonce_reply.find("PersonalizationNonce");
             if (!nonce || nonce->kind != plist::Kind::Data || nonce->data.empty() || nonce->data.size() > 128)
-                throw std::runtime_error(XDB_TR("Invalid DDI personalization nonce"));
+                throw std::runtime_error("Invalid DDI personalization nonce");
             auto &manifest_bytes = assets.at("BuildManifest.plist");
             auto manifest = plist::parse(std::string_view(reinterpret_cast<const char *>(manifest_bytes.data()), manifest_bytes.size()), &error);
-            if (!manifest) throw std::runtime_error(XDB_TR("Cannot parse DDI install manifest"));
+            if (!manifest) throw std::runtime_error("Cannot parse DDI install manifest");
             auto ticket = options.personalize(*manifest, *identifiers, ecid, nonce->data, s.remaining(), error);
             s.remaining();
-            if (!ticket) throw std::runtime_error(error.empty() ? XDB_TR("DDI personalization did not return a ticket") : safe_text(error));
+            if (!ticket) throw std::runtime_error(error.empty() ? "DDI personalization did not return a ticket" : safe_text(error));
             signature = std::move(*ticket);
             // Recheck the live nonce after HTTP. A reboot/other installer must
             // not cause this connection to upload a ticket for an earlier nonce.
             auto current = s.request(nonce_request); e = device_error(current); if (!e.empty()) throw std::runtime_error(e);
             auto *current_nonce = current.find("PersonalizationNonce");
             if (!current_nonce || current_nonce->kind != plist::Kind::Data || current_nonce->data != nonce->data)
-                throw std::runtime_error(XDB_TR("DDI personalization nonce changed before upload"));
+                throw std::runtime_error("DDI personalization nonce changed before upload");
         }
-        if (signature.empty() || signature.size() > max_ticket) throw std::runtime_error(XDB_TR("Invalid DDI install signature or ticket"));
+        if (signature.empty() || signature.size() > max_ticket) throw std::runtime_error("Invalid DDI install signature or ticket");
         if (existing.state == MountState::AlreadyMounted) unmount(s, catalog.kind);
         auto upload = command("ReceiveBytes"); upload.set("ImageType", V::Str(image_type(catalog.kind)));
         upload.set("ImageSize", V::Int(static_cast<int64_t>(image.size()))); upload.set("ImageSignature", V::OfData(signature));
         successful(s.request(upload), "ReceiveBytesAck");
-        if (!service.send_bytes || !service.receive) throw std::runtime_error(XDB_TR("DDI image transfer callbacks are missing"));
+        if (!service.send_bytes || !service.receive) throw std::runtime_error("DDI image transfer callbacks are missing");
         for (size_t offset = 0; offset < image.size();) {
             auto amount = std::min<size_t>(64 * 1024, image.size() - offset);
             if (!service.send_bytes(image.data() + offset, amount, s.remaining(), error))
-                throw std::runtime_error(error.empty() ? XDB_TR("DDI image upload failed") : safe_text(error));
+                throw std::runtime_error(error.empty() ? "DDI image upload failed" : safe_text(error));
             offset += amount; s.remaining();
             if (options.progress) options.progress(offset, image.size());
         }
         successful(s.check_reply(service.receive(s.remaining(), error), error), "Complete");
         // A concurrent installer must not be mistaken for our own mount.
         if (inspect(s, catalog.kind).state != MountState::NotMounted)
-            throw std::runtime_error(XDB_TR("Another DDI became mounted during upload"));
+            throw std::runtime_error("Another DDI became mounted during upload");
         auto mount = command("MountImage"); mount.set("ImageType", V::Str(image_type(catalog.kind)));
         mount.set("ImageSignature", V::OfData(signature));
         if (catalog.kind == Kind::Personalized) mount.set("ImageTrustCache", V::OfData(assets.at("Image.dmg.trustcache")));
         successful(s.request(mount), "Complete");
         auto result = inspect(s, catalog.kind);
-        if (result.state != MountState::AlreadyMounted) throw std::runtime_error(XDB_TR("DDI mount completed without a verifiable mounted image"));
+        if (result.state != MountState::AlreadyMounted) throw std::runtime_error("DDI mount completed without a verifiable mounted image");
         if (!result.signature.empty() && result.signature != signature)
-            throw std::runtime_error(XDB_TR("Mounted DDI signature differs from the uploaded image"));
+            throw std::runtime_error("Mounted DDI signature differs from the uploaded image");
         result.state = MountState::Mounted;
         if (!result.signature.empty()) result.signature_matches = true;
         return result;
@@ -329,7 +328,7 @@ std::optional<MountResult> mount_image(PlistService &service, const DownloadResu
     if (download.kind == Kind::Personalized) catalog = &detail::personalized_catalog();
     else if (download.kind == Kind::Cryptex) catalog = &detail::cryptex_catalog();
     else { auto version = parse_product_version(target.system_version, error); if (version) catalog = detail::classic_catalog(*version); }
-    if (!catalog) { error = XDB_TR("No pinned DDI catalog matches this installation target"); return std::nullopt; }
+    if (!catalog) { error = "No pinned DDI catalog matches this installation target"; return std::nullopt; }
     return detail::mount_image_with_catalog(service, download, target, ecid, options, *catalog, error);
 }
 } // namespace xdb::ddi

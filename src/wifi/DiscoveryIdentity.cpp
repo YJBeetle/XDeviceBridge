@@ -1,6 +1,5 @@
 #include "wifi/DiscoveryIdentity.h"
 
-#include "i18n/Translation.h"
 
 #include <openssl/crypto.h>
 #include <openssl/evp.h>
@@ -21,7 +20,7 @@ std::optional<std::array<uint8_t, 8>> siphash24(std::string_view key,
                                              std::string &err) {
     err.clear();
     if (key.size() != 16) {
-        err = XDB_TR("SipHash requires a 16-byte key");
+        err = "SipHash requires a 16-byte key";
         return std::nullopt;
     }
 
@@ -66,7 +65,7 @@ std::optional<std::array<uint8_t, 8>> siphash24(std::string_view key,
 #endif
 
     if (!success || output_size != output.size()) {
-        err = XDB_TR("OpenSSL SipHash computation failed");
+        err = "OpenSSL SipHash computation failed";
         return std::nullopt;
     }
     return output;
@@ -81,7 +80,7 @@ DiscoveryIdentityMatch match_advertisement(std::string_view identifier,
             return c <= 0x20 || c == 0x7f;
         })) {
         result.status = DiscoveryIdentityStatus::invalid_advertisement;
-        result.error = XDB_TR("Invalid mDNS identifier");
+        result.error = "Invalid mDNS identifier";
         return result;
     }
 
@@ -93,7 +92,7 @@ DiscoveryIdentityMatch match_advertisement(std::string_view identifier,
             EVP_DecodeBlock(tag.data(), reinterpret_cast<const unsigned char *>(auth_tag.data()),
                             static_cast<int>(auth_tag.size())) != static_cast<int>(tag.size())) {
             result.status = DiscoveryIdentityStatus::invalid_advertisement;
-            result.error = XDB_TR("Invalid mDNS authTag (expected 8 Base64 characters)");
+            result.error = "Invalid mDNS authTag (expected 8 Base64 characters)";
             return result;
         }
     }

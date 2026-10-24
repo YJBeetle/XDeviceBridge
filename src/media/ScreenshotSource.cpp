@@ -1,4 +1,3 @@
-#include "i18n/Translation.h"
 #include "media/ScreenshotSource.h"
 
 #include <chrono>
@@ -35,7 +34,7 @@ bool decode_png_bgra(const std::vector<uint8_t> &png, xdb::Frame &out, std::stri
 #ifdef XDB_HAVE_LIBAV
     const AVCodec *codec = avcodec_find_decoder(AV_CODEC_ID_PNG);
     if (codec == nullptr) {
-        err = XDB_TR("FFmpeg has no PNG decoder");
+        err = "FFmpeg has no PNG decoder";
         return false;
     }
     AVCodecContext *ctx = avcodec_alloc_context3(codec);
@@ -67,18 +66,18 @@ bool decode_png_bgra(const std::vector<uint8_t> &png, xdb::Frame &out, std::stri
                     sws_freeContext(sws);
                     ok = true;
                 } else {
-                    err = XDB_TR("Cannot create BGRA conversion (format=") +
+                    err = "Cannot create BGRA conversion (format=" +
                           std::string(av_get_pix_fmt_name(static_cast<AVPixelFormat>(frame->format))) +
-                          XDB_TR(")");
+                          ")";
                 }
             } else {
-                err = XDB_TR("PNG dimensions must be positive");
+                err = "PNG dimensions must be positive";
             }
         } else {
-            err = XDB_TR("FFmpeg could not decode PNG image");
+            err = "FFmpeg could not decode PNG image";
         }
     } else {
-        err = XDB_TR("Failed to allocate PNG decode resources");
+        err = "Failed to allocate PNG decode resources";
     }
     av_frame_free(&frame);
     av_packet_free(&pkt);
@@ -87,7 +86,7 @@ bool decode_png_bgra(const std::vector<uint8_t> &png, xdb::Frame &out, std::stri
 #else
     (void)png;
     (void)out;
-    err = XDB_TR("FFmpeg is not included; screenshot mode has no PNG decoder");
+    err = "FFmpeg is not included; screenshot mode has no PNG decoder";
     return false;
 #endif
 }
@@ -106,7 +105,7 @@ ScreenshotSource::~ScreenshotSource() {
 std::unique_ptr<ScreenshotSource> ScreenshotSource::start(remote::Device &device,
                                                           std::string &err, bool capture_first) {
     if (!device.rsd().has_service(kService)) {
-        err = XDB_TR("Device directory missing service: ") + std::string(kService);
+        err = "Device directory missing service: " + std::string(kService);
         return nullptr;
     }
     std::unique_ptr<ScreenshotSource> src(new ScreenshotSource(device));
@@ -150,7 +149,7 @@ bool ScreenshotSource::capture_once(std::vector<uint8_t> &png, std::string &err)
     }
     const auto *image = out.find("image");
     if (image == nullptr || image->data.empty()) {
-        err = XDB_TR("Screenshot response missing image data");
+        err = "Screenshot response missing image data";
         return false;
     }
     png = image->data;

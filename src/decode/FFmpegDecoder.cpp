@@ -1,5 +1,4 @@
 #include "decode/Swscale.h"
-#include "i18n/Translation.h"
 #include "decode/Decoder.h"
 
 // 以 C 链接约定声明 libav 接口，与其库导出的符号一致。
@@ -37,7 +36,7 @@ public:
 
         const AVCodec *codec = avcodec_find_decoder(AV_CODEC_ID_HEVC);
         if (codec == nullptr) {
-            std::fprintf(stderr, XDB_TR("FFmpeg has no HEVC decoder\n"));
+            std::fprintf(stderr, "FFmpeg has no HEVC decoder\n");
             return false;
         }
         ctx_ = avcodec_alloc_context3(codec);
@@ -52,7 +51,7 @@ public:
         // 打开解码上下文后才允许提交 packet；参数集将在 decode 中随 AU 提交。
         const int open_st = avcodec_open2(ctx_, codec, nullptr);
         if (open_st < 0) {
-            std::fprintf(stderr, XDB_TR("Failed to open FFmpeg HEVC decoder: %s\n"),
+            std::fprintf(stderr, "Failed to open FFmpeg HEVC decoder: %s\n",
                          av_strerr(open_st).c_str());
             teardown();
             return false;
@@ -104,7 +103,7 @@ public:
         if (send_st < 0) {
             static std::once_flag warned;
             std::call_once(warned, [send_st] {
-                std::fprintf(stderr, XDB_TR("FFmpeg rejected packet: %s\n"), av_strerr(send_st).c_str());
+                std::fprintf(stderr, "FFmpeg rejected packet: %s\n", av_strerr(send_st).c_str());
             });
             return false;
         }
@@ -149,7 +148,7 @@ private:
                                                                 : av_pix_fmt_desc_get(src);
         if (w <= 0 || h <= 0 || desc == nullptr ||
             (desc->flags & AV_PIX_FMT_FLAG_HWACCEL)) {
-            std::fprintf(stderr, XDB_TR("Software decoder requires CPU frames; received format=%d %dx%d\n"),
+            std::fprintf(stderr, "Software decoder requires CPU frames; received format=%d %dx%d\n",
                          static_cast<int>(src), w, h);
             return false;
         }

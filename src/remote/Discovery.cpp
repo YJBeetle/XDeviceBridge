@@ -1,6 +1,5 @@
 #include "remote/Discovery.h"
 
-#include "i18n/Translation.h"
 #include "transport/Usbmux.h"
 #include "wifi/DiscoveryIdentity.h"
 #include "wifi/Mdns.h"
@@ -96,7 +95,7 @@ DiscoveryResult detail::merge_discovery(const std::vector<transport::DeviceRecor
         }
         if (device->name.empty() && !advertisement.name.empty()) device->name = advertisement.name;
         if (pairing == DiscoveryPairing::crypto_error)
-            warn(result.warnings, XDB_TR("Cannot match mDNS advertisements to pairing records"));
+            warn(result.warnings, "Cannot match mDNS advertisements to pairing records");
 
         DiscoveryCandidate candidate;
         candidate.transport = DiscoveryTransport::remote_pairing;
@@ -142,16 +141,16 @@ std::vector<wifi::PairRecord> detail::load_discovery_records(const std::string &
         if (ec == std::errc::no_such_file_or_directory || status.type() == std::filesystem::file_type::not_found)
             return records;
         if (ec) {
-            warn(warnings, XDB_TR("Cannot access pairing record directory"));
+            warn(warnings, "Cannot access pairing record directory");
             return records;
         }
         if (!std::filesystem::is_directory(status)) {
-            warn(warnings, XDB_TR("Pairing record path is not a directory"));
+            warn(warnings, "Pairing record path is not a directory");
             return records;
         }
         std::filesystem::directory_iterator entry(root, ec), end;
         if (ec) {
-            warn(warnings, XDB_TR("Cannot read pairing record directory"));
+            warn(warnings, "Cannot read pairing record directory");
             return records;
         }
         constexpr size_t kMaxEntries = 4096;
@@ -161,43 +160,43 @@ std::vector<wifi::PairRecord> detail::load_discovery_records(const std::string &
         while (entry != end) {
             if (stop()) break;
             if (examined++ >= kMaxEntries) {
-                warn(warnings, XDB_TR("Pairing record directory entry limit reached"));
+                warn(warnings, "Pairing record directory entry limit reached");
                 break;
             }
             const auto file_status = entry->symlink_status(ec);
             if (ec) {
-                warn(warnings, XDB_TR("Cannot inspect a pairing record directory entry"));
+                warn(warnings, "Cannot inspect a pairing record directory entry");
                 ec.clear();
             } else if (std::filesystem::is_regular_file(file_status)) {
                 const auto utf8_name = entry->path().filename().u8string();
                 const std::string name(utf8_name.begin(), utf8_name.end());
                 if (name.size() > 12 && name.starts_with("remote-") && name.ends_with(".pair")) {
                     if (record_files++ >= kMaxRecords) {
-                        warn(warnings, XDB_TR("Pairing record file limit reached"));
+                        warn(warnings, "Pairing record file limit reached");
                         break;
                     }
                     const auto size = entry->file_size(ec);
                     if (ec) {
-                        warn(warnings, XDB_TR("Cannot read a pairing record file"));
+                        warn(warnings, "Cannot read a pairing record file");
                         ec.clear();
                     } else if (size > kMaxFileSize) {
-                        warn(warnings, XDB_TR("Skipped an oversized pairing record file"));
+                        warn(warnings, "Skipped an oversized pairing record file");
                     } else if (!stop()) {
                         std::string error;
                         const auto record = wifi::load_record(entry->path().string(), error);
                         if (record) records.push_back(*record);
-                        else warn(warnings, XDB_TR("Skipped an unreadable or invalid pairing record file"));
+                        else warn(warnings, "Skipped an unreadable or invalid pairing record file");
                     }
                 }
             }
             entry.increment(ec);
             if (ec) {
-                warn(warnings, XDB_TR("Reading pairing record directory was interrupted"));
+                warn(warnings, "Reading pairing record directory was interrupted");
                 break;
             }
         }
     } catch (const std::exception &) {
-        warn(warnings, XDB_TR("Cannot read pairing records for device discovery"));
+        warn(warnings, "Cannot read pairing records for device discovery");
     }
     return records;
 }
@@ -214,7 +213,7 @@ DiscoveryResult discover_devices(const DiscoveryOptions &options) {
     }
     if (options.timeout.count() < 0 || options.timeout > std::chrono::seconds(60) ||
         options.usb_timeout.count() < 0 || options.usb_timeout > std::chrono::seconds(60)) {
-        warn(result.warnings, XDB_TR("Device discovery timeout must be between 0 and 60000 ms"));
+        warn(result.warnings, "Device discovery timeout must be between 0 and 60000 ms");
         return result;
     }
 
@@ -239,7 +238,7 @@ DiscoveryResult discover_devices(const DiscoveryOptions &options) {
             return result;
         }
         if (!result.usb_available)
-            warn(result.warnings, XDB_TR("USB device enumeration is unavailable"));
+            warn(result.warnings, "USB device enumeration is unavailable");
     }
     if (stop_requested()) result.cancelled = true;
     if (options.include_wifi && options.timeout.count() > 0 && !result.cancelled) {

@@ -1,4 +1,3 @@
-#include "i18n/Translation.h"
 #include "media/AudioPump.h"
 #include "media/Recorder.h"
 
@@ -101,13 +100,13 @@ AudioPump::ReadTrim AudioPump::compute_read_trim(std::size_t buffered,
 std::unique_ptr<AudioPump> AudioPump::start(remote::Device &device, const Options &options,
                                            std::string &err, bool verbose) {
     if (!options.decode_pcm && (options.recorder == nullptr || !options.recorder->includes_audio())) {
-        err = XDB_TR("Audio capture without PCM decoding requires a container recording with an audio track");
+        err = "Audio capture without PCM decoding requires a container recording with an audio track";
         return nullptr;
     }
     // 起流前计算并提示被限制的配置，与构造函数采用相同纯函数。
     const Waterline w = compute_waterline(options);
     if (w.clamped_to_ms != 0) {
-        std::printf(XDB_TR("Clamped --audio-buffer %d to %d ms and adjusted buffer capacity\n"),
+        std::printf("Clamped --audio-buffer %d to %d ms and adjusted buffer capacity\n",
                     options.target_backlog_ms, w.clamped_to_ms);
     }
     auto pump = std::unique_ptr<AudioPump>(new AudioPump(device, options));
@@ -140,14 +139,14 @@ bool AudioPump::validate_stream_mode(const StreamSession::Started &started,
     } else if (mode != nullptr && mode->type == xpc::Type::Int64 && mode->int64 >= 0) {
         value = static_cast<uint64_t>(mode->int64);
     } else {
-        err = XDB_TR("Audio routing was not confirmed: answer has no valid AudioStreamMode");
+        err = "Audio routing was not confirmed: answer has no valid AudioStreamMode";
         return false;
     }
     const uint64_t expected = options.audio_dup ? 8 : 10;
     if (value != expected) {
         err = options.audio_dup
-            ? XDB_TR("Phone-and-computer audio routing was not accepted (--audio-dup requires AudioStreamMode 8)")
-            : XDB_TR("Computer-only audio routing was not accepted (requires AudioStreamMode 10); not falling back to --audio-dup");
+            ? "Phone-and-computer audio routing was not accepted (--audio-dup requires AudioStreamMode 8)"
+            : "Computer-only audio routing was not accepted (requires AudioStreamMode 10); not falling back to --audio-dup";
         return false;
     }
     err.clear();
@@ -157,12 +156,12 @@ bool AudioPump::validate_stream_mode(const StreamSession::Started &started,
 void AudioPump::reject_negotiation(std::string &err) {
     negotiation_invalid_ = true;
     if (options_.stop_device_on_exit && cleanup_session_ != nullptr) {
-        err += XDB_TR(". Audio reception stopped; cleanup will request the device to stop streaming");
+        err += ". Audio reception stopped; cleanup will request the device to stop streaming";
     } else {
         char lease_note[384];
-        std::snprintf(lease_note, sizeof(lease_note), XDB_TR(
+        std::snprintf(lease_note, sizeof(lease_note),
             ". Audio keepalive has stopped; wait for session expiry (about %u seconds), "
-            "then resume the phone's player if needed"), options_.lease_seconds);
+            "then resume the phone's player if needed", options_.lease_seconds);
         err += lease_note;
     }
     // 首次 AcceptedInvalidAnswer 没有有效 handle，不能声称已经停止设备会话。
@@ -210,7 +209,7 @@ bool AudioPump::start_session(std::string &err) {
         // 未协商设备来源时可绑定第一条合法音频 RTP；双方身份未确定前不发 RR。
         // 缺少客户端身份时不能凭默认 0 续期，输出协商值以便排查。
         std::fprintf(stderr,
-                     XDB_TR("Audio answer missing SSRC (RemoteSSRC=%u LocalSSRC=%u); session renewal may fail\n"),
+                     "Audio answer missing SSRC (RemoteSSRC=%u LocalSSRC=%u); session renewal may fail\n",
                      started.remote_ssrc, started.local_ssrc);
     }
     session_ = std::move(session);
@@ -270,7 +269,7 @@ void AudioPump::stop() {
             std::string stop_error;
             if (!session->stop(device_, stop_error, verbose_)) {
                 note_terminal_error(stop_error);
-                std::fprintf(stderr, XDB_TR("Failed to stop audio-only device sessions: %s\n"),
+                std::fprintf(stderr, "Failed to stop audio-only device sessions: %s\n",
                              stop_error.c_str());
             }
         }
@@ -363,7 +362,7 @@ void AudioPump::report_clock_failure(const std::string &err) {
         failures = ++stats_.clock_failed;
     }
     if (failures <= 3) {
-        std::fprintf(stderr, XDB_TR("Audio clock compensation failed: %s; continuing playback\n"),
+        std::fprintf(stderr, "Audio clock compensation failed: %s; continuing playback\n",
                      err.c_str());
     }
 }
@@ -466,7 +465,7 @@ void AudioPump::loop() {
 
         if (session_ == nullptr) {
             if (options_.recorder != nullptr) {
-                options_.recorder->fail(XDB_TR("Audio session was recreated during container recording"));
+                options_.recorder->fail("Audio session was recreated during container recording");
             }
             std::string rerr;
             if (start_session(rerr)) {
@@ -474,7 +473,7 @@ void AudioPump::loop() {
                     std::lock_guard<std::mutex> lock(mutex_);
                     ++stats_.restarts;
                 }
-                std::printf(XDB_TR("Audio session recreated, receive port=%u\n"), session_->receiver_port());
+                std::printf("Audio session recreated, receive port=%u\n", session_->receiver_port());
                 last_packet_ms = now_ms();
                 next_rtcp_ms = last_packet_ms + kRtcpPeriodMs;
                 last_probe_ms = 0;
@@ -487,11 +486,11 @@ void AudioPump::loop() {
                 continue;
             }
             if (negotiation_invalid_) {
-                std::fprintf(stderr, XDB_TR("Audio negotiation failed during recovery; disabling audio: %s\n"),
+                std::fprintf(stderr, "Audio negotiation failed during recovery; disabling audio: %s\n",
                              rerr.c_str());
                 break;
             }
-            std::fprintf(stderr, XDB_TR("Failed to recreate audio session: %s (retry in 1 second)\n"), rerr.c_str());
+            std::fprintf(stderr, "Failed to recreate audio session: %s (retry in 1 second)\n", rerr.c_str());
             // 使用可取消的条件变量等待，停止请求无需等待退避期结束。
             for (int i = 0; i < 10 && !stopping_.load(); ++i) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -509,9 +508,9 @@ void AudioPump::loop() {
                                                     perr, verbose_);
             if (state == StreamSession::ServerState::Ended) {
                 if (options_.recorder != nullptr) {
-                    options_.recorder->fail(XDB_TR("Device ended the recorded audio session"));
+                    options_.recorder->fail("Device ended the recorded audio session");
                 }
-                std::fprintf(stderr, XDB_TR("Audio: device session ended (%llu ms without audio); recreating session\n"),
+                std::fprintf(stderr, "Audio: device session ended (%llu ms without audio); recreating session\n",
                              static_cast<unsigned long long>(quiet));
                 if (options_.stop_device_on_exit) cleanup_session_ = std::move(session_);
                 else session_.reset();
@@ -540,7 +539,7 @@ void AudioPump::loop() {
             }
             // 每个会话只输出第一次发送失败，后续由会话恢复策略处理。
             if (failed_after == 1) {
-                std::fprintf(stderr, XDB_TR("Failed to send audio RTCP keepalive: %s\n"), serr.c_str());
+                std::fprintf(stderr, "Failed to send audio RTCP keepalive: %s\n", serr.c_str());
             }
         }
 
@@ -607,7 +606,7 @@ void AudioPump::loop() {
             continue;
         }
         if (verdict == xdb::rt::RtpSeq::Verdict::kGap && options_.recorder != nullptr) {
-            options_.recorder->fail(XDB_TR("Audio packet loss ended container recording"));
+            options_.recorder->fail("Audio packet loss ended container recording");
         }
         // 当前 ELD 每包承载一帧（10 ms），不做重组或重传，只统计序号缺口。
         const auto payload = std::span<const uint8_t>(datagram).subspan(
@@ -627,7 +626,7 @@ void AudioPump::loop() {
             // 解码错误只输出前几次，避免每包重复日志。
             if (decode_failures_logged < 3) {
                 ++decode_failures_logged;
-                std::fprintf(stderr, XDB_TR("Audio decode failed (%zu-byte payload): %s\n"), payload.size(),
+                std::fprintf(stderr, "Audio decode failed (%zu-byte payload): %s\n", payload.size(),
                              derr.c_str());
             }
             continue;

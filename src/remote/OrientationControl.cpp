@@ -1,6 +1,5 @@
 #include "remote/OrientationControl.h"
 
-#include "i18n/Translation.h"
 #include "remote/Device.h"
 
 namespace xdb::remote {
@@ -27,7 +26,7 @@ std::optional<DeviceOrientation> parse_orientation(const xpc::Value &value) {
 
 bool cancelled(std::stop_token cancel, std::string &err) {
     if (!cancel.stop_requested()) return false;
-    err = XDB_TR("Device orientation request cancelled");
+    err = "Device orientation request cancelled";
     return true;
 }
 
@@ -92,7 +91,7 @@ std::unique_ptr<OrientationControl> OrientationControl::connect(Device &device, 
     const auto service = device.rsd().service(kService);
     if (!service || !service->uses_remote_xpc || service->port == 0 ||
         !device.rsd().supports(kService, kFeature)) {
-        err = XDB_TR("Device orientation control is unavailable");
+        err = "Device orientation control is unavailable";
         return nullptr;
     }
     auto connection = device.connect(kService, err, verbose, cancel);
@@ -105,7 +104,7 @@ CallResult OrientationControl::exchange(const xpc::Value &request, OrientationSt
                                         std::string &err, int timeout_ms) {
     if (cancelled(cancel_, err)) return CallResult::TransportError;
     if (timeout_ms <= 0) {
-        err = XDB_TR("Device orientation reply timeout must be positive");
+        err = "Device orientation reply timeout must be positive";
         return CallResult::DeviceError;
     }
     // Never issue a second WANTING_REPLY request on the same devicecontrol connection.
@@ -122,7 +121,7 @@ CallResult OrientationControl::exchange(const xpc::Value &request, OrientationSt
     if (cancelled(cancel_, err)) return CallResult::TransportError;
     const auto state = parse_state(reply);
     if (!state) {
-        err = XDB_TR("Unrecognized device orientation response");
+        err = "Unrecognized device orientation response";
         return CallResult::DeviceError;
     }
     out = *state;
@@ -138,7 +137,7 @@ CallResult OrientationControl::change(DeviceOrientation target, OrientationState
     if (cancelled(cancel_, err)) return CallResult::TransportError;
     const auto request = build_change(target);
     if (!request) {
-        err = XDB_TR("Device orientation target must be portrait or landscape");
+        err = "Device orientation target must be portrait or landscape";
         return CallResult::DeviceError;
     }
     return exchange(*request, out, err, timeout_ms);

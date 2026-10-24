@@ -1,5 +1,4 @@
 #include "wifi/PairRecordWindows.h"
-#include "i18n/Translation.h"
 #include <aclapi.h>
 #include <filesystem>
 #include <limits>
@@ -44,7 +43,7 @@ struct PrivateDescriptor {
         return true;
     }
     static bool fail(std::string &err, DWORD code = GetLastError()) {
-        err = std::string(XDB_TR("Failed to set record file permissions")) + ": Windows error " +
+        err = std::string("Failed to set record file permissions") + ": Windows error " +
               std::to_string(code);
         return false;
     }
@@ -74,7 +73,7 @@ bool protect_record_directory(const std::string &path, std::string &err) {
 bool write_private_record(const std::string &temporary, const std::string &path,
                           std::string_view text, std::string &err, bool replace) {
     if (text.size() > std::numeric_limits<DWORD>::max()) {
-        err = XDB_TR("Incomplete record file write");
+        err = "Incomplete record file write";
         return false;
     }
     PrivateDescriptor descriptor;
@@ -86,7 +85,7 @@ bool write_private_record(const std::string &temporary, const std::string &path,
     HANDLE file = CreateFileW(temp.c_str(), GENERIC_WRITE, 0, &attributes, CREATE_NEW,
                               FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE) {
-        err = XDB_TR("Cannot open temporary file ") + temporary + ": Windows error " +
+        err = "Cannot open temporary file " + temporary + ": Windows error " +
               std::to_string(GetLastError());
         return false;
     }
@@ -97,7 +96,7 @@ bool write_private_record(const std::string &temporary, const std::string &path,
     const BOOL closed = CloseHandle(file);
     if (!saved || !closed) {
         DeleteFileW(temp.c_str());
-        err = XDB_TR("Incomplete record file write");
+        err = "Incomplete record file write";
         return false;
     }
     // 调用方提供同目录临时文件，替换沿用它的安全描述符，不经过跨卷复制。
@@ -107,8 +106,8 @@ bool write_private_record(const std::string &temporary, const std::string &path,
         const DWORD code = GetLastError();
         DeleteFileW(temp.c_str());
         err = !replace && (code == ERROR_FILE_EXISTS || code == ERROR_ALREADY_EXISTS)
-            ? XDB_TR("Pairing record already exists; Wi-Fi pairing will not replace it")
-            : std::string(XDB_TR("Rename failed")) + ": Windows error " + std::to_string(code);
+            ? "Pairing record already exists; Wi-Fi pairing will not replace it"
+            : std::string("Rename failed") + ": Windows error " + std::to_string(code);
         return false;
     }
     return true;

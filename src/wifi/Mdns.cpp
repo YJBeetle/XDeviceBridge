@@ -1,6 +1,5 @@
 #include "wifi/Mdns.h"
 
-#include "i18n/Translation.h"
 #include "transport/SocketPlatform.h"
 #include <mdns.h>
 
@@ -137,7 +136,7 @@ struct detail::RecordCache::Impl {
             auto found = ctx.iface.services.find(normalized);
             if (found != ctx.iface.services.end()) return &found->second;
             if (ctx.cache.service_count >= kMaxNames) {
-                warn(ctx.cache.warnings, XDB_TR("mDNS service limit reached"));
+                warn(ctx.cache.warnings, "mDNS service limit reached");
                 return nullptr;
             }
             ++ctx.cache.service_count;
@@ -157,12 +156,12 @@ struct detail::RecordCache::Impl {
                 if (target.empty()) { ctx.valid = false; return 0; }
                 if (srv.port) {
                     if (!update(entry->srv, Service::Srv{target, srv.port}, ttl, ctx.now, kMaxSrv))
-                        warn(ctx.cache.warnings, XDB_TR("mDNS SRV candidate limit reached"));
+                        warn(ctx.cache.warnings, "mDNS SRV candidate limit reached");
                 }
             }
         } else if (type == MDNS_RECORDTYPE_TXT) {
             if (auto *entry = service(name)) {
-                if (length > 4096) { warn(ctx.cache.warnings, XDB_TR("mDNS TXT record limit reached")); return 0; }
+                if (length > 4096) { warn(ctx.cache.warnings, "mDNS TXT record limit reached"); return 0; }
                 std::array<mdns_record_txt_t, 128> fields{};
                 const auto count = mdns_record_parse_txt(data, size, offset, length, fields.data(), fields.size());
                 std::map<std::string, std::string> txt;
@@ -199,12 +198,12 @@ struct detail::RecordCache::Impl {
             } else { ctx.valid = false; return 0; }
             if (!address.empty()) {
                 if (!ctx.iface.hosts.contains(key) && ctx.cache.host_count >= kMaxNames) {
-                    warn(ctx.cache.warnings, XDB_TR("mDNS host limit reached"));
+                    warn(ctx.cache.warnings, "mDNS host limit reached");
                     return 0;
                 }
                 if (!ctx.iface.hosts.contains(key)) ++ctx.cache.host_count;
                 if (!update(ctx.iface.hosts[key], address, ttl, ctx.now, kMaxAddresses))
-                    warn(ctx.cache.warnings, XDB_TR("mDNS address candidate limit reached"));
+                    warn(ctx.cache.warnings, "mDNS address candidate limit reached");
             }
         }
         return 0;
@@ -263,7 +262,7 @@ bool detail::RecordCache::add_packet(uint32_t index, std::string_view interface_
         offset += length;
     }
     if (!impl_->interfaces.contains(index) && impl_->interfaces.size() >= kMaxInterfaces) {
-        warn(impl_->warnings, XDB_TR("mDNS interface limit reached"));
+        warn(impl_->warnings, "mDNS interface limit reached");
         return false;
     }
     auto &iface = impl_->interfaces[index];
@@ -314,7 +313,7 @@ std::vector<Advertisement> detail::RecordCache::snapshot(Clock::time_point now) 
                 const size_t count = std::min(ad.endpoints.size(), kMaxEndpoints - found->endpoints.size());
                 found->endpoints.insert(found->endpoints.end(), ad.endpoints.begin(),
                                         ad.endpoints.begin() + static_cast<std::ptrdiff_t>(count));
-                if (count < ad.endpoints.size()) warn(impl_->warnings, XDB_TR("mDNS endpoint limit reached"));
+                if (count < ad.endpoints.size()) warn(impl_->warnings, "mDNS endpoint limit reached");
             }
         }
     }
@@ -374,7 +373,7 @@ std::vector<InterfaceAddress> interfaces(std::vector<std::string> &warnings) {
                       std::string_view name, const sockaddr *address) {
         if (!index || (address->sa_family != AF_INET && address->sa_family != AF_INET6)) return;
         if (!selected.contains(cache_index) && selected.size() >= kMaxInterfaces) {
-            warn(warnings, XDB_TR("mDNS interface limit reached"));
+            warn(warnings, "mDNS interface limit reached");
             return;
         }
         if (address->sa_family == AF_INET6) {
@@ -457,7 +456,7 @@ std::unique_ptr<QuerySocket> open_socket(const InterfaceAddress &iface, std::vec
     const int family = iface.local.ss_family;
     result->fd = socket(family, SOCK_DGRAM, IPPROTO_UDP);
     auto fail = [&]() {
-        warn(warnings, std::string(XDB_TR("mDNS interface ")) + iface.name + (family == AF_INET ? " IPv4: " : " IPv6: ") +
+        warn(warnings, std::string("mDNS interface ") + iface.name + (family == AF_INET ? " IPv4: " : " IPv6: ") +
                        transport::socket_error_message());
         return std::unique_ptr<QuerySocket>{};
     };
@@ -529,7 +528,7 @@ bool send_query(QuerySocket &socket, uint16_t type, std::string_view name, std::
     // 也避免其 IPv6 socket helper 把组播接口索引固定成 0。
     auto *end = mdns_answer_add_question_unicast(buffer.data(), buffer.size(), buffer.data() + sizeof(header),
                                                 static_cast<mdns_record_type_t>(type), name.data(), name.size(), &table);
-    if (!end) { warn(warnings, XDB_TR("mDNS query name is too long")); return false; }
+    if (!end) { warn(warnings, "mDNS query name is too long"); return false; }
     sockaddr_storage destination{};
     const int family = socket.iface.local.ss_family;
     if (family == AF_INET) {
@@ -548,7 +547,7 @@ bool send_query(QuerySocket &socket, uint16_t type, std::string_view name, std::
     if (sendto(socket.fd, reinterpret_cast<const char *>(buffer.data()), length, 0,
                reinterpret_cast<const sockaddr *>(&destination),
                family == AF_INET ? sizeof(sockaddr_in) : sizeof(sockaddr_in6)) < 0) {
-        warn(warnings, std::string(XDB_TR("mDNS query on interface ")) + socket.iface.name + ": " + transport::socket_error_message());
+        warn(warnings, std::string("mDNS query on interface ") + socket.iface.name + ": " + transport::socket_error_message());
         return false;
     }
     socket.sent[{type, std::string(name)}] = detail::RecordCache::Clock::now();
@@ -566,7 +565,7 @@ BrowseResult browse(const BrowseOptions &options) {
     result.cancelled = stop_requested();
     if (result.cancelled || options.timeout.count() == 0) return result;
     if (options.timeout.count() < 0 || options.timeout > std::chrono::seconds(60)) {
-        result.warnings.push_back(XDB_TR("mDNS timeout must be between 0 and 60000 ms"));
+        result.warnings.push_back("mDNS timeout must be between 0 and 60000 ms");
         return result;
     }
     try {
@@ -581,7 +580,7 @@ BrowseResult browse(const BrowseOptions &options) {
         }
         if (sockets.empty()) {
             result.cancelled = stop_requested();
-            if (!result.cancelled) warn(result.warnings, XDB_TR("No multicast interface is available for mDNS"));
+            if (!result.cancelled) warn(result.warnings, "No multicast interface is available for mDNS");
             return result;
         }
         result.available = true;
@@ -605,7 +604,7 @@ BrowseResult browse(const BrowseOptions &options) {
 #endif
             if (available < 0) {
                 if (transport::socket_error() == transport::kSocketInterrupted) continue;
-                warn(result.warnings, std::string(XDB_TR("mDNS receive wait: ")) + transport::socket_error_message());
+                warn(result.warnings, std::string("mDNS receive wait: ") + transport::socket_error_message());
                 break;
             }
             for (size_t i = 0; i < sockets.size() && !stop_requested(); ++i) {
@@ -619,7 +618,7 @@ BrowseResult browse(const BrowseOptions &options) {
                                                reinterpret_cast<sockaddr *>(&from), &from_size);
                     if (size < 0) {
                         if (!transport::socket_read_timed_out(transport::socket_error()))
-                            warn(result.warnings, std::string(XDB_TR("mDNS receive on interface ")) + sockets[i]->iface.name + ": " + transport::socket_error_message());
+                            warn(result.warnings, std::string("mDNS receive on interface ") + sockets[i]->iface.name + ": " + transport::socket_error_message());
                         break;
                     }
                     if (++received > kMaxPackets) break;
@@ -633,7 +632,7 @@ BrowseResult browse(const BrowseOptions &options) {
                                      sockets[i]->iface.ipv6_index);
                 }
             }
-            if (received > kMaxPackets) { warn(result.warnings, XDB_TR("mDNS packet limit reached")); break; }
+            if (received > kMaxPackets) { warn(result.warnings, "mDNS packet limit reached"); break; }
             const auto query_time = detail::RecordCache::Clock::now();
             for (const auto &socket : sockets) {
                 auto queries = cache.queries(socket->iface.cache_index);
@@ -650,7 +649,7 @@ BrowseResult browse(const BrowseOptions &options) {
         result.advertisements = cache.snapshot();
         for (const auto &warning : cache.warnings()) warn(result.warnings, warning);
     } catch (const std::exception &error) {
-        warn(result.warnings, std::string(XDB_TR("mDNS browse: ")) + error.what());
+        warn(result.warnings, std::string("mDNS browse: ") + error.what());
     }
     result.cancelled = stop_requested();
     return result;
@@ -671,17 +670,17 @@ bool host_label(std::string_view value) {
 
 bool valid_host(const HostAdvertisement &host, std::string &error) {
     if (!host_label(host.instance_identifier)) {
-        error = XDB_TR("mDNS advertiser identifier must be a single ASCII DNS label"); return false;
+        error = "mDNS advertiser identifier must be a single ASCII DNS label"; return false;
     }
     if (!host.port || (!host.advertise_ipv4 && !host.advertise_ipv6)) {
-        error = XDB_TR("mDNS advertiser requires a listening TCP port and address family"); return false;
+        error = "mDNS advertiser requires a listening TCP port and address family"; return false;
     }
     const std::array<std::pair<std::string_view, std::string_view>, 7> fields{{
         {"name", host.name}, {"identifier", host.instance_identifier}, {"authTag", host.auth_tag},
         {"model", host.model}, {"flags", "1"}, {"ver", "26"}, {"minVer", "17"}}};
     for (const auto &[key, value] : fields) {
         if (value.empty() || key.size() + 1 + value.size() > 255) {
-            error = XDB_TR("mDNS advertiser has an empty or oversized TXT field"); return false;
+            error = "mDNS advertiser has an empty or oversized TXT field"; return false;
         }
     }
     return true;
@@ -709,9 +708,9 @@ std::vector<uint8_t> encode_host(const detail::HostRecords &input, uint32_t ttl,
     if (!dns_name(input.service_instance) || !dns_name(input.target) ||
         lower(input.service_instance) != identity + "." + std::string(kHostService) ||
         lower(input.target) != identity + ".local.") {
-        error = XDB_TR("mDNS advertiser has an invalid service or target DNS name"); return {};
+        error = "mDNS advertiser has an invalid service or target DNS name"; return {};
     }
-    if (input.addresses.size() > kMaxAddresses) { error = XDB_TR("mDNS advertiser address limit exceeded"); return {}; }
+    if (input.addresses.size() > kMaxAddresses) { error = "mDNS advertiser address limit exceeded"; return {}; }
     auto text = [](std::string_view value) { return mdns_string_t{value.data(), value.size()}; };
     std::vector<mdns_record_t> records;
     records.reserve(9 + input.addresses.size());
@@ -757,10 +756,10 @@ std::vector<uint8_t> encode_host(const detail::HostRecords &input, uint32_t ttl,
             const uint32_t value = ntohl(address.sin_addr.s_addr);
             valid = valid && value && value != 0xffffffff && (value >> 24) != 127 && (value >> 28) < 14;
         }
-        if (!valid) { error = XDB_TR("mDNS advertiser has an invalid numeric address"); return {}; }
+        if (!valid) { error = "mDNS advertiser has an invalid numeric address"; return {}; }
         records.push_back(record); ++address_count;
     }
-    if (!address_count) { error = XDB_TR("mDNS advertiser has no address for a listening family"); return {}; }
+    if (!address_count) { error = "mDNS advertiser has no address for a listening family"; return {}; }
     alignas(uint32_t) std::array<uint8_t, kMaxPacket> buffer{};
     mdns_header_t header{};
     header.query_id = htons(id); header.flags = htons(0x8400);
@@ -782,7 +781,7 @@ std::vector<uint8_t> encode_host(const detail::HostRecords &input, uint32_t ttl,
     }
     if (end) end = mdns_answer_add_txt_record(buffer.data(), buffer.size(), end, records.data(), records.size(),
                                              srv.rclass, ttl, &table);
-    if (!end) { error = XDB_TR("mDNS advertiser packet is too large"); return {}; }
+    if (!end) { error = "mDNS advertiser packet is too large"; return {}; }
     return {buffer.data(), static_cast<uint8_t *>(end)};
 }
 
@@ -806,7 +805,7 @@ bool send_host(QuerySocket &socket, std::span<const uint8_t> wire,
                               reinterpret_cast<const sockaddr *>(&destination),
                               peer ? peer_size : family == AF_INET ? sizeof(sockaddr_in) : sizeof(sockaddr_in6));
     if (size < 0 || static_cast<size_t>(size) != wire.size()) {
-        error = std::string(XDB_TR("mDNS advertiser send: ")) + transport::socket_error_message(); return false;
+        error = std::string("mDNS advertiser send: ") + transport::socket_error_message(); return false;
     }
     return true;
 }
@@ -821,13 +820,13 @@ std::vector<detail::HostReply> detail::host_query_reply(const HostRecords &recor
     std::span<const uint8_t> query, bool legacy, std::string &error) {
     error.clear();
     if (query.size() < sizeof(mdns_header_t) || query.size() > kMaxPacket) {
-        error = XDB_TR("mDNS advertiser query has an invalid size"); return {};
+        error = "mDNS advertiser query has an invalid size"; return {};
     }
     const uint16_t flags = mdns_ntohs(query.data() + 2);
     if (flags & 0x8000) return {}; // 不回应其他公告或自己的回应。
     if (flags & 0x780f) return {};
     const auto count = mdns_ntohs(query.data() + 4);
-    if (count > 32) { error = XDB_TR("mDNS advertiser question limit exceeded"); return {}; }
+    if (count > 32) { error = "mDNS advertiser question limit exceeded"; return {}; }
     size_t offset = sizeof(mdns_header_t);
     std::vector<HostQuestion> questions;
     bool unicast = false, multicast = false;
@@ -836,12 +835,12 @@ std::vector<detail::HostReply> detail::host_query_reply(const HostRecords &recor
         std::array<char, 256> name{};
         const auto value = mdns_string_extract(query.data(), query.size(), &offset, name.data(), name.size());
         if (before == offset || !value.length || value.length >= name.size() || offset + 4 > query.size()) {
-            error = XDB_TR("mDNS advertiser query is truncated or has an invalid name"); return {};
+            error = "mDNS advertiser query is truncated or has an invalid name"; return {};
         }
         HostQuestion question{std::string(value.str, value.length), mdns_ntohs(query.data() + offset),
                               mdns_ntohs(query.data() + offset + 2)};
         if (!dns_name(question.name)) {
-            error = XDB_TR("mDNS advertiser query has an invalid DNS name"); return {};
+            error = "mDNS advertiser query has an invalid DNS name"; return {};
         }
         offset += 4;
         const auto cls = question.cls & 0x7fff;
@@ -921,7 +920,7 @@ std::unique_ptr<Advertiser> Advertiser::start(const HostAdvertisement &host, std
             if (socket) impl->bindings.push_back({std::move(socket), std::move(records)});
         }
         if (impl->bindings.empty()) {
-            error = warnings.empty() ? std::string(XDB_TR("No multicast interface is available for mDNS")) : warnings.front();
+            error = warnings.empty() ? std::string("No multicast interface is available for mDNS") : warnings.front();
             return {};
         }
         auto advertiser = std::unique_ptr<Advertiser>(new Advertiser(std::move(impl)));
@@ -929,14 +928,14 @@ std::unique_ptr<Advertiser> Advertiser::start(const HostAdvertisement &host, std
         advertiser->impl_->next_announcement = detail::RecordCache::Clock::now() + std::chrono::seconds(1);
         return advertiser;
     } catch (const std::exception &exception) {
-        error = std::string(XDB_TR("mDNS advertiser: ")) + std::string(exception.what()); return {};
+        error = std::string("mDNS advertiser: ") + std::string(exception.what()); return {};
     }
 }
 
 bool Advertiser::poll(int timeout_ms, std::string &error) {
     error.clear();
     if (timeout_ms < 0 || timeout_ms > 60000) {
-        error = XDB_TR("mDNS timeout must be between 0 and 60000 ms"); return false;
+        error = "mDNS timeout must be between 0 and 60000 ms"; return false;
     }
     const auto deadline = detail::RecordCache::Clock::now() + std::chrono::milliseconds(timeout_ms);
     const auto now = detail::RecordCache::Clock::now();
@@ -960,7 +959,7 @@ bool Advertiser::poll(int timeout_ms, std::string &error) {
 #endif
     if (count < 0) {
         if (transport::socket_error() == transport::kSocketInterrupted) return true;
-        error = std::string(XDB_TR("mDNS advertiser receive wait: ")) + transport::socket_error_message(); return false;
+        error = std::string("mDNS advertiser receive wait: ") + transport::socket_error_message(); return false;
     }
     alignas(uint32_t) std::array<uint8_t, kMaxPacket + 1> packet{};
     for (size_t i = 0; i < ready.size(); ++i) {
@@ -973,7 +972,7 @@ bool Advertiser::poll(int timeout_ms, std::string &error) {
                                       reinterpret_cast<sockaddr *>(&peer), &peer_size);
             if (size < 0) {
                 if (!transport::socket_read_timed_out(transport::socket_error())) {
-                    error = std::string(XDB_TR("mDNS advertiser receive: ")) + transport::socket_error_message(); return false;
+                    error = std::string("mDNS advertiser receive: ") + transport::socket_error_message(); return false;
                 }
                 break;
             }

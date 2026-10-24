@@ -1,4 +1,3 @@
-#include "i18n/Translation.h"
 #include "wifi/Rppairing.h"
 
 #include <cstring>
@@ -24,7 +23,7 @@ void Rppairing::install_main_keys(Bytes client_key, Bytes server_key) {
 bool FramedCarrier::write_envelope(const json::Value &envelope, std::string &err) {
     const std::string text = json::write(envelope);
     if (text.size() > 0xFFFF) {
-        err = XDB_TR("Frame exceeds u16 length field");
+        err = "Frame exceeds u16 length field";
         return false;
     }
     Bytes buf;
@@ -42,7 +41,7 @@ std::optional<json::Value> FramedCarrier::read_envelope(std::string &err) {
         return std::nullopt;
     }
     if (std::memcmp(header, kRpPairingMagic.data(), kRpPairingMagic.size()) != 0) {
-        err = XDB_TR("Frame header is not RPPairing; check port and stream alignment");
+        err = "Frame header is not RPPairing; check port and stream alignment";
         return std::nullopt;
     }
     const size_t len = (static_cast<size_t>(header[kRpPairingMagic.size()]) << 8) |
@@ -82,29 +81,29 @@ std::optional<json::Value> Rppairing::receive(std::string &err) {
 
     const json::Value *message = json::find(*envelope, "message");
     if (message == nullptr) {
-        err = XDB_TR("Envelope missing message field");
+        err = "Envelope missing message field";
         return std::nullopt;
     }
     if (const json::Value *plain = json::find(*message, "plain")) {
         const json::Value *inner = json::find(*plain, "_0");
         if (inner == nullptr) {
-            err = XDB_TR("plain missing _0");
+            err = "plain missing _0";
             return std::nullopt;
         }
         return *inner;
     }
     const json::Value *encrypted = json::find(*message, "streamEncrypted");
     if (encrypted == nullptr) {
-        err = XDB_TR("Envelope is neither plain nor streamEncrypted");
+        err = "Envelope is neither plain nor streamEncrypted";
         return std::nullopt;
     }
     const json::Value *payload = json::find(*encrypted, "_0");
     if (payload == nullptr || !payload->is_string()) {
-        err = XDB_TR("streamEncrypted._0 is not a string");
+        err = "streamEncrypted._0 is not a string";
         return std::nullopt;
     }
     if (server_main_.size() != 32 || last_nonce_.size() != 12) {
-        err = XDB_TR("Encrypted frame received before main key and nonce were ready");
+        err = "Encrypted frame received before main key and nonce were ready";
         return std::nullopt;
     }
     const std::optional<Bytes> sealed = b64_decode(json::as_string_or(*payload), err);
@@ -123,12 +122,12 @@ std::optional<json::Value> Rppairing::receive(std::string &err) {
     }
     const json::Value *response = json::find(*decrypted, "response");
     if (response == nullptr) {
-        err = XDB_TR("Decrypted message is not a response");
+        err = "Decrypted message is not a response";
         return std::nullopt;
     }
     const json::Value *body_of_response = json::find(*response, "_1");
     if (body_of_response == nullptr) {
-        err = XDB_TR("response missing _1");
+        err = "response missing _1";
         return std::nullopt;
     }
     // 设备把错误也塞在加密回复里：不挑出来的话，调用方会拿一个没有期待字段的对象
@@ -137,7 +136,7 @@ std::optional<json::Value> Rppairing::receive(std::string &err) {
         const json::Value *info = json::find(*extended, "_0");
         const json::Value *user = info != nullptr ? json::find(*info, "userInfo") : nullptr;
         const json::Value *why = user != nullptr ? json::find(*user, "NSLocalizedDescription") : nullptr;
-        err = XDB_TR("Device rejected request: ") + (why != nullptr ? json::as_string_or(*why) : std::string(XDB_TR("(no description)")));
+        err = "Device rejected request: " + (why != nullptr ? json::as_string_or(*why) : std::string("(no description)"));
         return std::nullopt;
     }
     return *body_of_response;
@@ -184,29 +183,29 @@ std::optional<Bytes> pairing_data_roundtrip(Rppairing &channel, const Bytes &tlv
         }
         const json::Value *event = json::find(*reply, "event");
         if (event == nullptr) {
-            err = XDB_TR("Expected event during pairing");
+            err = "Expected event during pairing";
             return std::nullopt;
         }
         const json::Value *zero = json::find(*event, "_0");
         if (zero == nullptr) {
-            err = XDB_TR("event missing _0");
+            err = "event missing _0";
             return std::nullopt;
         }
         if (const json::Value *rejected = json::find(*zero, "pairingRejectedWithError")) {
             const json::Value *wrapped = json::find(*rejected, "wrappedError");
             const json::Value *user = wrapped != nullptr ? json::find(*wrapped, "userInfo") : nullptr;
             const json::Value *why = user != nullptr ? json::find(*user, "NSLocalizedDescription") : nullptr;
-            err = XDB_TR("Device rejected request: ") + (why != nullptr ? json::as_string_or(*why) : std::string(XDB_TR("(no description)")));
+            err = "Device rejected request: " + (why != nullptr ? json::as_string_or(*why) : std::string("(no description)"));
             return std::nullopt;
         }
         if (json::find(*zero, "awaitingUserConsent") != nullptr) {
             if (!consent_pending) {
-                err = XDB_TR("Device requested user consent twice consecutively");
+                err = "Device requested user consent twice consecutively";
                 return std::nullopt;
             }
             consent_pending = false;
             if (progress) {
-                progress(XDB_TR("Device is waiting for Trust confirmation on its screen"));
+                progress("Device is waiting for Trust confirmation on its screen");
             }
             continue;
         }
@@ -214,7 +213,7 @@ std::optional<Bytes> pairing_data_roundtrip(Rppairing &channel, const Bytes &tlv
         const json::Value *inner_data = data != nullptr ? json::find(*data, "_0") : nullptr;
         const json::Value *bytes = inner_data != nullptr ? json::find(*inner_data, "data") : nullptr;
         if (bytes == nullptr || !bytes->is_string()) {
-            err = XDB_TR("event missing pairingData._0.data; actual fields: ");
+            err = "event missing pairingData._0.data; actual fields: ";
             for (const auto &kv : zero->items()) {
                 err += " " + kv.key();
             }
@@ -227,7 +226,7 @@ std::optional<Bytes> pairing_data_roundtrip(Rppairing &channel, const Bytes &tlv
 std::optional<json::Value> Rppairing::encrypted_roundtrip(const json::Value &request,
                                                           std::string &err) {
     if (client_main_.size() != 32) {
-        err = XDB_TR("Main key not installed; cannot send encrypted frame");
+        err = "Main key not installed; cannot send encrypted frame";
         return std::nullopt;
     }
     // nonce = u64 小端计数 + 4 个零字节。计数在**往返成功之后**才推进。

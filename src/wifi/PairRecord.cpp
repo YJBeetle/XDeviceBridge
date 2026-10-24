@@ -1,5 +1,4 @@
 #include "util/Hex.h"
-#include "i18n/Translation.h"
 #include "wifi/PairRecord.h"
 
 #include <algorithm>
@@ -67,12 +66,12 @@ bool write_file(const std::string &path, std::string_view text, std::string &err
     std::FILE *f = fd < 0 ? nullptr : ::fdopen(fd, "wb");
     if (f == nullptr) {
         if (fd >= 0) { ::close(fd); ::remove(tmp.c_str()); }
-        err = XDB_TR("Cannot open temporary file ") + tmp;
+        err = "Cannot open temporary file " + tmp;
         return false;
     }
     // 在写入含私钥的记录前将临时文件权限设为 0600；设置失败即关闭并移除文件。
     if (::fchmod(::fileno(f), 0600) != 0) {
-        err = XDB_TR("Failed to set record file permissions");
+        err = "Failed to set record file permissions";
         std::fclose(f);
         ::remove(tmp.c_str());
         return false;
@@ -80,7 +79,7 @@ bool write_file(const std::string &path, std::string_view text, std::string &err
     const size_t written = std::fwrite(text.data(), 1, text.size(), f);
     const int closed = std::fclose(f);
     if (written != text.size() || closed != 0) {
-        err = XDB_TR("Incomplete record file write");
+        err = "Incomplete record file write";
         ::remove(tmp.c_str());
         return false;
     }
@@ -88,8 +87,8 @@ bool write_file(const std::string &path, std::string_view text, std::string &err
     // filename or symlink wins the race; only replacement mode uses rename.
     if ((replace ? std::rename(tmp.c_str(), path.c_str()) : ::link(tmp.c_str(), path.c_str())) != 0) {
         err = !replace && errno == EEXIST
-            ? XDB_TR("Pairing record already exists; Wi-Fi pairing will not replace it")
-            : XDB_TR("Rename failed");
+            ? "Pairing record already exists; Wi-Fi pairing will not replace it"
+            : "Rename failed";
         ::remove(tmp.c_str());
         return false;
     }
@@ -101,18 +100,18 @@ bool write_file(const std::string &path, std::string_view text, std::string &err
 std::optional<std::string> read_file(const std::string &path, std::string &err) {
     std::ifstream in(path, std::ios::binary);
     if (!in) {
-        err = XDB_TR("Cannot open ") + path;
+        err = "Cannot open " + path;
         return std::nullopt;
     }
     std::string text(kMaxRecordText + 1, '\0');
     in.read(text.data(), static_cast<std::streamsize>(text.size()));
     const auto count = static_cast<size_t>(in.gcount());
     if (in.bad() || (in.fail() && !in.eof())) {
-        err = XDB_TR("Failed to read pairing record file ") + path;
+        err = "Failed to read pairing record file " + path;
         return std::nullopt;
     }
     if (count > kMaxRecordText) {
-        err = XDB_TR("Pairing record file too large");
+        err = "Pairing record file too large";
         return std::nullopt;
     }
     text.resize(count);
@@ -169,14 +168,14 @@ std::optional<PairRecord> parse_record(std::string_view text, std::string &err) 
         if (first) {
             first = false;
             if (line != kHeader && line != "scrctl-pair-record 1") {
-                err = XDB_TR("Invalid xdb pairing record header");
+                err = "Invalid xdb pairing record header";
                 return std::nullopt;
             }
             continue;
         }
         const size_t eq = line.find('=');
         if (eq == std::string_view::npos) {
-            err = XDB_TR("Record line is not key=value");
+            err = "Record line is not key=value";
             return std::nullopt;
         }
         const std::string_view key = trim(line.substr(0, eq));
@@ -186,7 +185,7 @@ std::optional<PairRecord> parse_record(std::string_view text, std::string &err) 
                            key == "advertised_identifier" || key == "peer_identifier" ||
                            key == "peer_public_key" || key == "peer_alt_irk";
         if (known && !seen_fields.insert(key).second) {
-            err = XDB_TR("Duplicate pairing record field: ") + std::string(key);
+            err = "Duplicate pairing record field: " + std::string(key);
             return std::nullopt;
         }
         auto set_hex = [&](Bytes &field, size_t want) -> bool {
@@ -195,8 +194,8 @@ std::optional<PairRecord> parse_record(std::string_view text, std::string &err) 
                 return false;
             }
             if (bytes->size() != want) {
-                err = XDB_TR("Incorrect field length: ") + std::string(key) + XDB_TR(" requires ") + std::to_string(want) +
-                      XDB_TR(" bytes; got ") + std::to_string(bytes->size());
+                err = "Incorrect field length: " + std::string(key) + " requires " + std::to_string(want) +
+                      " bytes; got " + std::to_string(bytes->size());
                 return false;
             }
             field = *bytes;
@@ -219,7 +218,7 @@ std::optional<PairRecord> parse_record(std::string_view text, std::string &err) 
             record.advertised_identifier = value;
         } else if (key == "peer_identifier") {
             if (!valid_peer_identifier(value)) {
-                err = XDB_TR("Pairing record peer_identifier must be nonempty single-line text");
+                err = "Pairing record peer_identifier must be nonempty single-line text";
                 return std::nullopt;
             }
             record.peer_identifier = value;
@@ -235,7 +234,7 @@ std::optional<PairRecord> parse_record(std::string_view text, std::string &err) 
         // 忽略未知键，允许新增可选字段后的记录继续由旧版本解析。
     }
     if (!seen_private) {
-        err = XDB_TR("Record missing host_private_key");
+        err = "Record missing host_private_key";
         return std::nullopt;
     }
     return record;
@@ -252,7 +251,7 @@ bool save_record_impl(const std::string &path, const PairRecord &record, std::st
         const bool existed = std::filesystem::is_directory(dir, ec);
         std::filesystem::create_directories(dir, ec);
         if (ec) {
-            err = XDB_TR("Failed to create directory ") + dir + ": " + ec.message();
+            err = "Failed to create directory " + dir + ": " + ec.message();
             return false;
         }
         if (!existed) {
@@ -262,7 +261,7 @@ bool save_record_impl(const std::string &path, const PairRecord &record, std::st
 #else
             std::filesystem::permissions(dir, std::filesystem::perms::owner_all, ec);
             if (ec) {
-                err = std::string(XDB_TR("Failed to set record file permissions")) + ": " + ec.message();
+                err = std::string("Failed to set record file permissions") + ": " + ec.message();
                 return false;
             }
 #endif
@@ -319,7 +318,7 @@ std::vector<std::string> list_record_udids(const std::string &dir, std::string &
     }
     for (const auto &entry : std::filesystem::directory_iterator(root, ec)) {
         if (ec) {
-            err = XDB_TR("Reading directory ") + dir + XDB_TR(" failed: ") + ec.message();
+            err = "Reading directory " + dir + " failed: " + ec.message();
             break;
         }
         if (!entry.is_regular_file(ec)) {

@@ -1,5 +1,4 @@
 #include "ddi/ServiceTransport.h"
-#include "i18n/Translation.h"
 #include "remote/Device.h"
 #include "transport/Lockdown.h"
 #include "transport/Usbmux.h"
@@ -48,9 +47,9 @@ public:
     bool finish(std::string &error) {
         stop(); check();
         switch (reason_.load()) {
-        case Timeout: error = XDB_TR("DDI service operation timed out"); return false;
-        case Cancelled: error = XDB_TR("DDI service operation was cancelled"); return false;
-        case Callback: error = XDB_TR("DDI service cancellation callback failed"); return false;
+        case Timeout: error = "DDI service operation timed out"; return false;
+        case Cancelled: error = "DDI service operation was cancelled"; return false;
+        case Callback: error = "DDI service cancellation callback failed"; return false;
         default: return true;
         }
     }
@@ -113,7 +112,7 @@ struct ServiceTransport::Impl {
             if (code == SSL_ERROR_WANT_READ || code == SSL_ERROR_WANT_WRITE) {
                 if (transport::wait_socket(socket.fd(), code == SSL_ERROR_WANT_WRITE, 25) >= 0) continue;
             }
-            error = XDB_TR("Cannot write DDI service TLS data"); return false;
+            error = "Cannot write DDI service TLS data"; return false;
         }
         return true;
     }
@@ -134,7 +133,7 @@ struct ServiceTransport::Impl {
                     if (timed_out) continue;
                     return false;
                 }
-                if (pending.empty()) { error = XDB_TR("DDI service closed the connection"); return false; }
+                if (pending.empty()) { error = "DDI service closed the connection"; return false; }
             }
             return true;
         }
@@ -149,13 +148,13 @@ struct ServiceTransport::Impl {
             if (code == SSL_ERROR_WANT_READ || code == SSL_ERROR_WANT_WRITE) {
                 if (transport::wait_socket(socket.fd(), code == SSL_ERROR_WANT_WRITE, 25) >= 0) continue;
             }
-            error = XDB_TR("Cannot read DDI service TLS data"); return false;
+            error = "Cannot read DDI service TLS data"; return false;
         }
         return true;
     }
     bool write_frame(const V &request, std::string &error) {
         const auto body = plist::write(request);
-        if (body.empty() || body.size() > kMaxFrame) { error = XDB_TR("DDI service request exceeds its frame limit"); return false; }
+        if (body.empty() || body.size() > kMaxFrame) { error = "DDI service request exceeds its frame limit"; return false; }
         const auto length = static_cast<uint32_t>(body.size());
         const uint8_t header[]{static_cast<uint8_t>(length >> 24), static_cast<uint8_t>(length >> 16),
             static_cast<uint8_t>(length >> 8), static_cast<uint8_t>(length)};
@@ -164,10 +163,10 @@ struct ServiceTransport::Impl {
     std::optional<V> read_frame(std::string &error) {
         uint8_t header[4]; if (!read(header, sizeof(header), error)) return {};
         const auto length = uint32_t(header[0]) << 24 | uint32_t(header[1]) << 16 | uint32_t(header[2]) << 8 | header[3];
-        if (!length || length > kMaxFrame) { error = XDB_TR("DDI service response has an invalid frame length"); return {}; }
+        if (!length || length > kMaxFrame) { error = "DDI service response has an invalid frame length"; return {}; }
         std::string body(length, '\0'); if (!read(reinterpret_cast<uint8_t *>(body.data()), body.size(), error)) return {};
         auto result = plist::parse(body);
-        if (!result || !result->is_dict()) { error = XDB_TR("DDI service response is not a plist dictionary"); return {}; }
+        if (!result || !result->is_dict()) { error = "DDI service response is not a plist dictionary"; return {}; }
         return result;
     }
     bool connect(Ms timeout, std::string &error) {
@@ -193,11 +192,11 @@ struct ServiceTransport::Impl {
             }
             return true;
         }
-        if (!device || !device->stack()) { error = XDB_TR("DDI remote session is unavailable"); return false; }
+        if (!device || !device->stack()) { error = "DDI remote session is unavailable"; return false; }
         const auto endpoint = device->rsd().service(kRemoteService);
-        if (!endpoint || !endpoint->port) { error = XDB_TR("DDI remote image-mounter service is unavailable"); return false; }
+        if (!endpoint || !endpoint->port) { error = "DDI remote image-mounter service is unavailable"; return false; }
         if (endpoint->uses_remote_xpc || endpoint->encrypt_socket_data) {
-            error = XDB_TR("DDI remote image-mounter service uses an unsupported transport"); return false;
+            error = "DDI remote image-mounter service uses an unsupported transport"; return false;
         }
         tcp = std::make_unique<net::TcpStream>(*device->stack());
         bool ok = false;
@@ -215,7 +214,7 @@ struct ServiceTransport::Impl {
             auto response = ok ? read_frame(error) : std::optional<V>{};
             const auto *request = response ? response->find("Request") : nullptr;
             if (!response || response->find("Error") || !request || !request->is_string() || request->string != expected) {
-                if (response) error = XDB_TR("DDI remote image-mounter check-in was rejected");
+                if (response) error = "DDI remote image-mounter check-in was rejected";
                 ok = false; break;
             }
         }
@@ -266,7 +265,7 @@ PlistService ServiceTransport::service() {
     service.send_bytes = [this](const uint8_t *data, size_t size, Ms timeout, std::string &error) {
         error.clear();
         try {
-            if (!data && size) { error = XDB_TR("DDI service raw upload data is missing"); return false; }
+            if (!data && size) { error = "DDI service raw upload data is missing"; return false; }
             Watchdog watch(timeout, impl_->cancelled, impl_->interrupter());
             const auto ok = watch.active() && impl_->write(data, size, error);
             return watch.finish(error) && ok;

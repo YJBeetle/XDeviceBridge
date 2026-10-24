@@ -1,4 +1,3 @@
-#include "i18n/Translation.h"
 #include "Decoder.h"
 
 #include <CoreMedia/CMBlockBuffer.h>
@@ -57,7 +56,7 @@ public:
         OSStatus st = CMVideoFormatDescriptionCreateFromHEVCParameterSets(
             nullptr, 3, sets, sizes, kNalLengthSize, nullptr, &format_desc_);
         if (st != noErr) {
-            std::fprintf(stderr, XDB_TR("Failed to parse HEVC parameter sets: %d\n"), static_cast<int>(st));
+            std::fprintf(stderr, "Failed to parse HEVC parameter sets: %d\n", static_cast<int>(st));
             return false;
         }
 
@@ -85,7 +84,7 @@ public:
         CFRelease(dest);
 
         if (st != noErr || session_ == nullptr) {
-            std::fprintf(stderr, XDB_TR("Failed to create VideoToolbox session: %d\n"), static_cast<int>(st));
+            std::fprintf(stderr, "Failed to create VideoToolbox session: %d\n", static_cast<int>(st));
             teardown();
             return false;
         }
@@ -207,9 +206,8 @@ private:
         static std::once_flag warned;
         std::call_once(warned, [n] {
             std::fprintf(stderr,
-                         XDB_TR(
                              "NAL size %zu exceeds the 2-byte length prefix; frame dropped. This stream "
-                             "requires software decoding.\n"),
+                             "requires software decoding.\n",
                          n);
         });
     }

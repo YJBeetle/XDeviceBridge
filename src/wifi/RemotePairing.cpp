@@ -1,4 +1,3 @@
-#include "i18n/Translation.h"
 #include "wifi/RemotePairing.h"
 
 #include <unistd.h>
@@ -32,12 +31,12 @@ std::optional<uint16_t> request_tcp_listener(Rppairing &channel, const Bytes &tu
         for (const auto &entry : reply->items()) {
             keys += " " + entry.key();
         }
-        err = XDB_TR("createListener response missing port (actual fields:") + keys + XDB_TR(")");
+        err = "createListener response missing port (actual fields:" + keys + ")";
         return std::nullopt;
     }
     const int64_t value = json::as_int_or(*port, 0);
     if (value <= 0 || value > 0xFFFF) {
-        err = XDB_TR("createListener returned an invalid port: ") + std::to_string(value);
+        err = "createListener returned an invalid port: " + std::to_string(value);
         return std::nullopt;
     }
     return static_cast<uint16_t>(value);

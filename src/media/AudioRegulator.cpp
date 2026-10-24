@@ -1,6 +1,5 @@
 #include "media/AudioRegulator.h"
 
-#include "i18n/Translation.h"
 
 #include <algorithm>
 #include <cmath>
@@ -69,7 +68,7 @@ struct AudioRegulator::Impl {
             status = swr_init(swr);
         }
         if (status < 0) {
-            err = XDB_TR("Failed to initialize audio clock resampling: ") + av_error(status);
+            err = "Failed to initialize audio clock resampling: " + av_error(status);
             swr_free(&swr);
             stats.active = false;
             return false;
@@ -114,7 +113,7 @@ std::unique_ptr<AudioRegulator> AudioRegulator::create(int sample_rate, int chan
     }
     if (sample_rate <= 0 || sample_rate > kMaxSampleRate || channels <= 0 ||
         channels > kMaxChannels || target_frames > static_cast<std::size_t>(sample_rate)) {
-        err = XDB_TR("Audio clock resampling requires a valid PCM format and at most one second of buffering");
+        err = "Audio clock resampling requires a valid PCM format and at most one second of buffering";
         return nullptr;
     }
     auto impl = std::make_unique<Impl>(sample_rate, channels, target_frames);
@@ -134,14 +133,14 @@ bool AudioRegulator::process(std::span<const int16_t> input, std::vector<int16_t
     }
 #if !defined(XDB_HAVE_LIBAV_AUDIO)
     (void) output;
-    err = XDB_TR("Audio clock resampling is unavailable in this build");
+    err = "Audio clock resampling is unavailable in this build";
     return false;
 #else
     auto &p = *impl_;
     const auto channels = static_cast<std::size_t>(p.channels);
     const auto frames = input.size() / channels;
     if (input.size() % channels != 0 || frames > static_cast<std::size_t>(p.sample_rate)) {
-        err = XDB_TR("Audio clock resampling received an invalid PCM block");
+        err = "Audio clock resampling received an invalid PCM block";
         p.clear();
         return false;
     }
@@ -153,7 +152,7 @@ bool AudioRegulator::process(std::span<const int16_t> input, std::vector<int16_t
     const int max_capacity = 2 * p.sample_rate + 4096;
     if (capacity < 0 || capacity > max_capacity ||
         static_cast<std::size_t>(capacity) > output.max_size() / channels) {
-        err = XDB_TR("Audio clock resampling returned an invalid sample count");
+        err = "Audio clock resampling returned an invalid sample count";
         p.clear();
         return false;
     }
@@ -162,8 +161,8 @@ bool AudioRegulator::process(std::span<const int16_t> input, std::vector<int16_t
     const uint8_t *src = reinterpret_cast<const uint8_t *>(input.data());
     const int count = swr_convert(p.swr, &dst, capacity, &src, static_cast<int>(frames));
     if (count < 0 || count > capacity) {
-        err = XDB_TR("Audio clock resampling failed: ") +
-              (count < 0 ? av_error(count) : XDB_TR("invalid sample count"));
+        err = "Audio clock resampling failed: " +
+              (count < 0 ? av_error(count) : "invalid sample count");
         p.clear();
         return false;
     }
@@ -229,7 +228,7 @@ bool AudioRegulator::observe(const Observation &observation, std::string &err) {
                                                       static_cast<double>(limit)));
     const int status = swr_set_compensation(p.swr, correction, distance);
     if (status < 0) {
-        err = XDB_TR("Failed to adjust the audio clock: ") + av_error(status);
+        err = "Failed to adjust the audio clock: " + av_error(status);
         p.clear();
         return false;
     }

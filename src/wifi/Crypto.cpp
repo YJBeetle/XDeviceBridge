@@ -1,4 +1,3 @@
-#include "i18n/Translation.h"
 #include "wifi/Crypto.h"
 #include "util/Base64.h"
 
@@ -42,7 +41,7 @@ PkeyUp raw_key(int pkey_type, std::string_view data, bool as_private, std::strin
                         : EVP_PKEY_new_raw_public_key(pkey_type, nullptr, u8(data),
                                                       static_cast<int>(data.size())));
     if (!p) {
-        err = as_private ? XDB_TR("Failed to create private key (invalid length or unsupported platform)") : XDB_TR("Failed to create public key (invalid length or unsupported platform)");
+        err = as_private ? "Failed to create private key (invalid length or unsupported platform)" : "Failed to create public key (invalid length or unsupported platform)";
     }
     return p;
 }
@@ -56,16 +55,16 @@ bool chacha(bool encrypt, std::string_view key, std::string_view nonce, const By
             std::string &err) {
     static constexpr size_t kTagLen = 16;
     if (key.size() != 32 || nonce.size() != 12) {
-        err = XDB_TR("ChaCha20-Poly1305 requires a 32-byte key and 12-byte nonce");
+        err = "ChaCha20-Poly1305 requires a 32-byte key and 12-byte nonce";
         return false;
     }
     if (!encrypt && in.size() < kTagLen) {
-        err = XDB_TR("Ciphertext shorter than Poly1305 tag");
+        err = "Ciphertext shorter than Poly1305 tag";
         return false;
     }
     CtxUp ctx(EVP_CIPHER_CTX_new());
     if (!ctx) {
-        err = XDB_TR("Failed to allocate EVP_CIPHER_CTX");
+        err = "Failed to allocate EVP_CIPHER_CTX";
         return false;
     }
     if (EVP_CipherInit_ex(ctx.get(), EVP_chacha20_poly1305(), nullptr, nullptr, nullptr,
@@ -73,7 +72,7 @@ bool chacha(bool encrypt, std::string_view key, std::string_view nonce, const By
         EVP_CIPHER_CTX_ctrl(ctx.get(), EVP_CTRL_AEAD_SET_IVLEN, static_cast<int>(nonce.size()),
                             nullptr) != 1 ||
         EVP_CipherInit_ex(ctx.get(), nullptr, nullptr, u8(key), u8(nonce), encrypt ? 1 : 0) != 1) {
-        err = XDB_TR("ChaCha20-Poly1305 initialization failed; check OpenSSL cipher support");
+        err = "ChaCha20-Poly1305 initialization failed; check OpenSSL cipher support";
         return false;
     }
     const size_t body = encrypt ? in.size() : in.size() - kTagLen;
@@ -82,31 +81,31 @@ bool chacha(bool encrypt, std::string_view key, std::string_view nonce, const By
     if (body > 0 &&
         EVP_CipherUpdate(ctx.get(), out.data(), &produced, in.data(),
                          static_cast<int>(body)) != 1) {
-        err = XDB_TR("ChaCha20-Poly1305 update failed");
+        err = "ChaCha20-Poly1305 update failed";
         return false;
     }
     int tail = 0;
     if (!encrypt) {
         if (EVP_CIPHER_CTX_ctrl(ctx.get(), EVP_CTRL_AEAD_SET_TAG, static_cast<int>(kTagLen),
                                 const_cast<unsigned char *>(in.data() + body)) != 1) {  // NOLINT
-            err = XDB_TR("Failed to set Poly1305 tag");
+            err = "Failed to set Poly1305 tag";
             return false;
         }
         if (EVP_CipherFinal_ex(ctx.get(), out.data() + produced, &tail) != 1) {
-            err = XDB_TR("Poly1305 authentication failed; check key derivation and frame boundaries");
+            err = "Poly1305 authentication failed; check key derivation and frame boundaries";
             return false;
         }
         out.resize(static_cast<size_t>(produced) + tail);
         return true;
     }
     if (EVP_CipherFinal_ex(ctx.get(), out.data() + produced, &tail) != 1) {
-        err = XDB_TR("ChaCha20-Poly1305 finalization failed");
+        err = "ChaCha20-Poly1305 finalization failed";
         return false;
     }
     produced += tail;
     if (EVP_CIPHER_CTX_ctrl(ctx.get(), EVP_CTRL_AEAD_GET_TAG, static_cast<int>(kTagLen),
                             out.data() + produced) != 1) {
-        err = XDB_TR("Failed to get Poly1305 tag");
+        err = "Failed to get Poly1305 tag";
         return false;
     }
     out.resize(static_cast<size_t>(produced) + kTagLen);
@@ -118,12 +117,12 @@ bool chacha(bool encrypt, std::string_view key, std::string_view nonce, const By
 std::optional<X25519KeyPair> x25519_keypair(std::string &err) {
     PctxUp pctx(EVP_PKEY_CTX_new_id(EVP_PKEY_X25519, nullptr));
     if (!pctx || EVP_PKEY_keygen_init(pctx.get()) <= 0) {
-        err = XDB_TR("Failed to initialize X25519 key generation");
+        err = "Failed to initialize X25519 key generation";
         return std::nullopt;
     }
     EVP_PKEY *raw = nullptr;
     if (EVP_PKEY_keygen(pctx.get(), &raw) <= 0) {
-        err = XDB_TR("Failed to generate X25519 key");
+        err = "Failed to generate X25519 key";
         return std::nullopt;
     }
     PkeyUp pkey(raw);
@@ -131,13 +130,13 @@ std::optional<X25519KeyPair> x25519_keypair(std::string &err) {
     size_t len = out.pub.size();
     if (EVP_PKEY_get_raw_public_key(pkey.get(), out.pub.data(), &len) != 1 ||
         len != out.pub.size()) {
-        err = XDB_TR("Failed to get X25519 public key");
+        err = "Failed to get X25519 public key";
         return std::nullopt;
     }
     len = out.priv.size();
     if (EVP_PKEY_get_raw_private_key(pkey.get(), out.priv.data(), &len) != 1 ||
         len != out.priv.size()) {
-        err = XDB_TR("Failed to get X25519 private key");
+        err = "Failed to get X25519 private key";
         return std::nullopt;
     }
     return out;
@@ -146,7 +145,7 @@ std::optional<X25519KeyPair> x25519_keypair(std::string &err) {
 std::optional<Bytes> random_bytes(size_t n, std::string &err) {
     Bytes out(n);
     if (n > 0 && RAND_bytes(out.data(), static_cast<int>(n)) != 1) {
-        err = XDB_TR("Failed to obtain cryptographic random bytes");
+        err = "Failed to obtain cryptographic random bytes";
         return std::nullopt;
     }
     return out;
@@ -166,7 +165,7 @@ std::optional<Ed25519KeyPair> ed25519_keypair(std::string &err) {
     std::memcpy(out.seed.data(), seed->data(), out.seed.size());
     size_t len = out.pub.size();
     if (EVP_PKEY_get_raw_public_key(key.get(), out.pub.data(), &len) != 1 || len != out.pub.size()) {
-        err = XDB_TR("Failed to get Ed25519 public key");
+        err = "Failed to get Ed25519 public key";
         return std::nullopt;
     }
     return out;
@@ -174,7 +173,7 @@ std::optional<Ed25519KeyPair> ed25519_keypair(std::string &err) {
 
 std::optional<Bytes> x25519_shared(const std::array<uint8_t, 32> &priv, std::string_view peer_pub,
                                    std::string &err) {    if (peer_pub.size() != 32) {
-        err = XDB_TR("Peer X25519 public key must be 32 bytes");
+        err = "Peer X25519 public key must be 32 bytes";
         return std::nullopt;
     }
     const std::string_view priv_view(reinterpret_cast<const char *>(priv.data()),  // NOLINT
@@ -192,18 +191,18 @@ std::optional<Bytes> x25519_shared(const std::array<uint8_t, 32> &priv, std::str
     if (!dctx || EVP_PKEY_derive_init(dctx.get()) <= 0 ||
         EVP_PKEY_derive_set_peer(dctx.get(), theirs.get()) <= 0 ||
         EVP_PKEY_derive(dctx.get(), nullptr, &len) <= 0 || len != 32) {
-        err = XDB_TR("X25519 shared secret computation failed");
+        err = "X25519 shared secret computation failed";
         return std::nullopt;
     }
     Bytes out(len);
     if (EVP_PKEY_derive(dctx.get(), out.data(), &len) <= 0) {
-        err = XDB_TR("X25519 shared secret computation failed");
+        err = "X25519 shared secret computation failed";
         return std::nullopt;
     }
     // RFC 7748 §6.1：全零意味着对端是低阶点。不挡掉的话，后面所有密钥都从一个
     // 攻击者可预测的值派生——这就是"看着握上了手"的空会话。
     if (std::all_of(out.begin(), out.end(), [](uint8_t b) { return b == 0; })) {
-        err = XDB_TR("X25519 shared secret is all zero (low-order peer public key)");
+        err = "X25519 shared secret is all zero (low-order peer public key)";
         return std::nullopt;
     }
     return out;
@@ -211,7 +210,7 @@ std::optional<Bytes> x25519_shared(const std::array<uint8_t, 32> &priv, std::str
 
 std::optional<Bytes> ed25519_sign(std::string_view seed, const Bytes &msg, std::string &err) {
     if (seed.size() != 32) {
-        err = XDB_TR("Ed25519 private key seed must be 32 bytes");
+        err = "Ed25519 private key seed must be 32 bytes";
         return std::nullopt;
     }
     PkeyUp key = raw_key(EVP_PKEY_ED25519, seed, true, err);
@@ -220,17 +219,17 @@ std::optional<Bytes> ed25519_sign(std::string_view seed, const Bytes &msg, std::
     }
     MdCtxUp mdctx(EVP_MD_CTX_new());
     if (!mdctx || EVP_DigestSignInit(mdctx.get(), nullptr, nullptr, nullptr, key.get()) <= 0) {
-        err = XDB_TR("Failed to initialize Ed25519 signing");
+        err = "Failed to initialize Ed25519 signing";
         return std::nullopt;
     }
     size_t len = 0;
     if (EVP_DigestSign(mdctx.get(), nullptr, &len, msg.data(), msg.size()) <= 0 || len != 64) {
-        err = XDB_TR("Failed to get Ed25519 signature length");
+        err = "Failed to get Ed25519 signature length";
         return std::nullopt;
     }
     Bytes out(len);
     if (EVP_DigestSign(mdctx.get(), out.data(), &len, msg.data(), msg.size()) <= 0) {
-        err = XDB_TR("Ed25519 signing failed");
+        err = "Ed25519 signing failed";
         return std::nullopt;
     }
     return out;
@@ -239,11 +238,11 @@ std::optional<Bytes> ed25519_sign(std::string_view seed, const Bytes &msg, std::
 bool ed25519_verify(std::string_view public_key, const Bytes &msg, const Bytes &signature,
                     std::string &err) {
     if (public_key.size() != 32) {
-        err = XDB_TR("Ed25519 public key must be 32 bytes");
+        err = "Ed25519 public key must be 32 bytes";
         return false;
     }
     if (signature.size() != 64) {
-        err = XDB_TR("Ed25519 signature must be 64 bytes");
+        err = "Ed25519 signature must be 64 bytes";
         return false;
     }
     PkeyUp key = raw_key(EVP_PKEY_ED25519, public_key, false, err);
@@ -252,19 +251,19 @@ bool ed25519_verify(std::string_view public_key, const Bytes &msg, const Bytes &
     }
     MdCtxUp mdctx(EVP_MD_CTX_new());
     if (!mdctx) {
-        err = XDB_TR("Failed to allocate EVP_MD_CTX");
+        err = "Failed to allocate EVP_MD_CTX";
         return false;
     }
     // PureEd25519 需要完整消息；digest 参数必须为 nullptr，不能使用流式 verify。
     if (EVP_DigestVerifyInit(mdctx.get(), nullptr, nullptr, nullptr, key.get()) != 1) {
-        err = XDB_TR("Failed to initialize Ed25519 verification");
+        err = "Failed to initialize Ed25519 verification";
         return false;
     }
     const int result = EVP_DigestVerify(mdctx.get(), signature.data(), signature.size(),
                                         msg.data(), msg.size());
     if (result != 1) {
-        err = result == 0 ? XDB_TR("Ed25519 signature verification failed")
-                          : XDB_TR("OpenSSL Ed25519 verification error");
+        err = result == 0 ? "Ed25519 signature verification failed"
+                          : "OpenSSL Ed25519 verification error";
         return false;
     }
     err.clear();
@@ -280,7 +279,7 @@ std::optional<Bytes> hkdf_sha512(const Bytes &ikm, std::string_view salt, std::s
     if (out_len > kMaxOutput || info.size() > kMaxInfo ||
         ikm.size() > static_cast<size_t>(std::numeric_limits<int>::max()) ||
         salt.size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
-        err = XDB_TR("HKDF-SHA512 input or output exceeds supported limits");
+        err = "HKDF-SHA512 input or output exceeds supported limits";
         return std::nullopt;
     }
     if (out_len == 0) {
@@ -298,13 +297,13 @@ std::optional<Bytes> hkdf_sha512(const Bytes &ikm, std::string_view salt, std::s
             ctx.get(), u8(salt), static_cast<int>(salt.size())) <= 0) ||
         (!info.empty() && EVP_PKEY_CTX_add1_hkdf_info(
             ctx.get(), u8(info), static_cast<int>(info.size())) <= 0)) {
-        err = XDB_TR("Failed to initialize HKDF-SHA512");
+        err = "Failed to initialize HKDF-SHA512";
         return std::nullopt;
     }
     Bytes out(out_len);
     size_t written = out_len;
     if (EVP_PKEY_derive(ctx.get(), out.data(), &written) <= 0 || written != out_len) {
-        err = XDB_TR("HKDF-SHA512 derivation failed");
+        err = "HKDF-SHA512 derivation failed";
         return std::nullopt;
     }
     err.clear();

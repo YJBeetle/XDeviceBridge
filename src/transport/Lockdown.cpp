@@ -1,4 +1,3 @@
-#include "i18n/Translation.h"
 #include "Lockdown.h"
 
 #include <cstring>
@@ -36,9 +35,9 @@ public:
     bool active() const { return !reason_; }
     bool finish(std::string &error) {
         stop(); check();
-        if (reason_ == 1) error = XDB_TR("Bounded lockdown operation timed out");
-        else if (reason_ == 2) error = XDB_TR("Bounded lockdown operation was cancelled");
-        else if (reason_ == 3) error = XDB_TR("Lockdown cancellation callback failed");
+        if (reason_ == 1) error = "Bounded lockdown operation timed out";
+        else if (reason_ == 2) error = "Bounded lockdown operation was cancelled";
+        else if (reason_ == 3) error = "Lockdown cancellation callback failed";
         return !reason_;
     }
 private:
@@ -80,10 +79,10 @@ bool write_frame(SSL *ssl, Socket &sock, std::string_view body, std::string &err
     hdr[3] = static_cast<uint8_t>(n);
     if (ssl != nullptr) {
         if (!tls_exact(ssl, hdr, 4, true)) {
-            return err = XDB_TR("Failed to write TLS header"), false;
+            return err = "Failed to write TLS header", false;
         }
         if (!tls_exact(ssl, reinterpret_cast<uint8_t *>(const_cast<char *>(body.data())), body.size(), true)) {
-            return err = XDB_TR("Failed to write TLS body"), false;
+            return err = "Failed to write TLS body", false;
         }
         return true;
     }
@@ -94,7 +93,7 @@ bool read_frame(SSL *ssl, Socket &sock, std::vector<uint8_t> &out, std::string &
     uint8_t hdr[4];
     if (ssl != nullptr) {
         if (!tls_exact(ssl, hdr, 4, false)) {
-            return err = XDB_TR("Failed to read TLS header"), false;
+            return err = "Failed to read TLS header", false;
         }
     } else if (!sock.read_exact(hdr, 4, err)) {
         return false;
@@ -102,7 +101,7 @@ bool read_frame(SSL *ssl, Socket &sock, std::vector<uint8_t> &out, std::string &
     const uint32_t len =
         uint32_t(hdr[0]) << 24 | uint32_t(hdr[1]) << 16 | uint32_t(hdr[2]) << 8 | hdr[3];
     if (len < 1 || len > (32u << 20)) {
-        return err = XDB_TR("Invalid lockdown frame length: ") + std::to_string(len), false;
+        return err = "Invalid lockdown frame length: " + std::to_string(len), false;
     }
     out.resize(len);
     if (ssl == nullptr) {
@@ -112,7 +111,7 @@ bool read_frame(SSL *ssl, Socket &sock, std::vector<uint8_t> &out, std::string &
     while (got < len) {
         const int n = SSL_read(ssl, out.data() + got, static_cast<int>(len - got));
         if (n <= 0) {
-            return err = XDB_TR("Failed to read TLS body"), false;
+            return err = "Failed to read TLS body", false;
         }
         got += static_cast<size_t>(n);
     }
@@ -143,7 +142,7 @@ bool Lockdown::request(const plist::Value &req, plist::Value &reply, std::string
     auto parsed = plist::parse(
         std::string_view(reinterpret_cast<const char *>(frame.data()), frame.size()));
     if (!parsed) {
-        return err = XDB_TR("lockdown response is not a valid plist"), false;
+        return err = "lockdown response is not a valid plist", false;
     }
     reply = std::move(*parsed);
     return true;
@@ -173,7 +172,7 @@ std::optional<Lockdown> Lockdown::establish_bounded(uint32_t device_id, std::str
     std::vector<uint8_t> record;
     if (!rec_mux->read_pair_record_for_service(udid, record, budget.remaining(), cancelled, err)) { budget.check(err); return {}; }
     auto parsed = plist::parse(std::string_view(reinterpret_cast<const char *>(record.data()), record.size()));
-    if (!parsed || !parsed->is_dict()) { err = XDB_TR("Cannot parse pairing record"); return {}; }
+    if (!parsed || !parsed->is_dict()) { err = "Cannot parse pairing record"; return {}; }
     auto take = [&](std::string_view key) {
         const auto *value = parsed->find(key);
         return value && value->kind == plist::Kind::Data ? value->data : std::vector<uint8_t>{};
@@ -183,7 +182,7 @@ std::optional<Lockdown> Lockdown::establish_bounded(uint32_t device_id, std::str
     if (const auto *value = parsed->find("HostID")) ld.host_id_ = value->as_string_or();
     if (const auto *value = parsed->find("SystemBUID")) ld.system_buid_ = value->as_string_or();
     ld.identity_ = PemIdentity{take("HostCertificate"), take("HostPrivateKey"), take("RootCertificate")};
-    if (ld.host_id_.empty() || !ld.identity_.complete()) { err = XDB_TR("Pairing record missing required fields"); return {}; }
+    if (ld.host_id_.empty() || !ld.identity_.complete()) { err = "Pairing record missing required fields"; return {}; }
     auto mux = Usbmux::open_for_service(budget.remaining(), cancelled, err);
     if (!mux) { budget.check(err); return {}; }
     auto socket = mux->connect_for_service(device_id, kLockdownPort, budget.remaining(), cancelled, err);
@@ -198,7 +197,7 @@ std::optional<Lockdown> Lockdown::establish_bounded(uint32_t device_id, std::str
         if (!guard.finish(err) || !ok) return {};
     }
     if (const auto *value = reply.find("Error")) {
-        err = XDB_TR("StartSession rejected: ") + value->as_string_or("?"); return {};
+        err = "StartSession rejected: " + value->as_string_or("?"); return {};
     }
     if (const auto *value = reply.find("SessionID")) ld.session_id_ = value->as_string_or();
     const auto *want_ssl = reply.find("EnableSessionSSL");
@@ -225,7 +224,7 @@ std::optional<Lockdown> Lockdown::establish(uint32_t device_id, std::string_view
     auto parsed = plist::parse(
         std::string_view(reinterpret_cast<const char *>(record.data()), record.size()));
     if (!parsed) {
-        err = XDB_TR("Cannot parse pairing record");
+        err = "Cannot parse pairing record";
         return std::nullopt;
     }
     auto take = [&](std::string_view key) -> std::vector<uint8_t> {
@@ -243,7 +242,7 @@ std::optional<Lockdown> Lockdown::establish(uint32_t device_id, std::string_view
     ld.identity_ = PemIdentity{take("HostCertificate"), take("HostPrivateKey"),
                                take("RootCertificate")};
     if (ld.host_id_.empty() || !ld.identity_.complete()) {
-        err = XDB_TR("Pairing record missing required fields");
+        err = "Pairing record missing required fields";
         return std::nullopt;
     }
 
@@ -266,7 +265,7 @@ std::optional<Lockdown> Lockdown::establish(uint32_t device_id, std::string_view
         return std::nullopt;
     }
     if (const auto *e = reply.find("Error"); e != nullptr) {
-        err = XDB_TR("StartSession rejected: ") + e->as_string_or("?");
+        err = "StartSession rejected: " + e->as_string_or("?");
         return std::nullopt;
     }
     if (const auto *sid = reply.find("SessionID")) {
@@ -290,12 +289,12 @@ std::optional<Lockdown::ServiceEndpoint> Lockdown::start_service(std::string_vie
         return std::nullopt;
     }
     if (const auto *e = reply.find("Error"); e != nullptr) {
-        err = "StartService(" + std::string(name) + XDB_TR(") rejected: ") + e->as_string_or("?");
+        err = "StartService(" + std::string(name) + ") rejected: " + e->as_string_or("?");
         return std::nullopt;
     }
     const auto *port = reply.find("Port");
     if (port == nullptr) {
-        err = XDB_TR("StartService response missing Port");
+        err = "StartService response missing Port";
         return std::nullopt;
     }
     ServiceEndpoint ep;

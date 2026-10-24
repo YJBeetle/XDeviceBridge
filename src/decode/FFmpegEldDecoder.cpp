@@ -1,6 +1,5 @@
 #include "decode/FFmpegEldDecoder.h"
 
-#include "i18n/Translation.h"
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -70,14 +69,14 @@ public:
         if (encoded.size() > kMaxEldPacketBytes ||
             encoded.size() > static_cast<size_t>(std::numeric_limits<int>::max() -
                                                  AV_INPUT_BUFFER_PADDING_SIZE)) {
-            err = XDB_TR("AAC-ELD packet exceeds the single-datagram size limit");
+            err = "AAC-ELD packet exceeds the single-datagram size limit";
             return false;
         }
 
         av_packet_unref(packet_.get());
         int status = av_new_packet(packet_.get(), static_cast<int>(encoded.size()));
         if (status < 0) {
-            return fail(XDB_TR("Failed to allocate FFmpeg AAC-ELD packet: ") +
+            return fail("Failed to allocate FFmpeg AAC-ELD packet: " +
                             av_error(status), err);
         }
         // av_new_packet 提供解码器所需的零填充尾部。输入 span 不必包含 padding，
@@ -86,7 +85,7 @@ public:
         status = avcodec_send_packet(codec_.get(), packet_.get());
         av_packet_unref(packet_.get());
         if (status < 0) {
-            return fail(XDB_TR("FFmpeg AAC-ELD rejected the packet: ") + av_error(status), err);
+            return fail("FFmpeg AAC-ELD rejected the packet: " + av_error(status), err);
         }
 
         // 先收集本次输出，再一次性追加；解析或转换中途失败不会留下部分 PCM。
@@ -98,11 +97,11 @@ public:
                 break;
             }
             if (status < 0) {
-                return fail(XDB_TR("FFmpeg AAC-ELD decode failed: ") + av_error(status), err);
+                return fail("FFmpeg AAC-ELD decode failed: " + av_error(status), err);
             }
             if (frame_->sample_rate != 48000 || !has_stereo_layout(frame_.get()) ||
                 frame_->nb_samples != frame_length_ || !decoded.empty()) {
-                return fail(XDB_TR("FFmpeg AAC-ELD returned an unexpected audio format"), err);
+                return fail("FFmpeg AAC-ELD returned an unexpected audio format", err);
             }
             if (!convert(decoded, err)) {
                 reset_after_error();
@@ -110,7 +109,7 @@ public:
             }
         }
         if (decoded.size() > pcm.max_size() - pcm.size()) {
-            return fail(XDB_TR("AAC-ELD PCM output exceeds the buffer size limit"), err);
+            return fail("AAC-ELD PCM output exceeds the buffer size limit", err);
         }
         pcm.insert(pcm.end(), decoded.begin(), decoded.end());
         return true;
@@ -135,13 +134,13 @@ private:
     bool convert(std::vector<int16_t> &decoded, std::string &err) {
         if (frame_->format < 0 || frame_->format >= AV_SAMPLE_FMT_NB ||
             frame_->extended_data == nullptr) {
-            err = XDB_TR("FFmpeg AAC-ELD returned an unexpected audio format");
+            err = "FFmpeg AAC-ELD returned an unexpected audio format";
             return false;
         }
         const auto format = static_cast<AVSampleFormat>(frame_->format);
         if (frame_->extended_data[0] == nullptr ||
             (av_sample_fmt_is_planar(format) && frame_->extended_data[1] == nullptr)) {
-            err = XDB_TR("FFmpeg AAC-ELD returned an unexpected audio format");
+            err = "FFmpeg AAC-ELD returned an unexpected audio format";
             return false;
         }
         if (!converter_ || input_format_ != format) {
@@ -158,12 +157,12 @@ private:
 #endif
             converter_.reset(raw);
             if (status < 0 || !converter_) {
-                err = XDB_TR("Failed to configure AAC-ELD PCM conversion: ") + av_error(status);
+                err = "Failed to configure AAC-ELD PCM conversion: " + av_error(status);
                 return false;
             }
             status = swr_init(converter_.get());
             if (status < 0) {
-                err = XDB_TR("Failed to configure AAC-ELD PCM conversion: ") + av_error(status);
+                err = "Failed to configure AAC-ELD PCM conversion: " + av_error(status);
                 return false;
             }
             input_format_ = format;
@@ -173,7 +172,7 @@ private:
         // 输入采样率与输出相同，每次转换应输出这一帧。仍按库给出的容量分配，
         // 并限制上限；不把负数或异常容量转换为 size_t 后直接分配。
         if (capacity < frame_length_ || capacity > 2048) {
-            err = XDB_TR("AAC-ELD PCM conversion returned an invalid sample count");
+            err = "AAC-ELD PCM conversion returned an invalid sample count";
             return false;
         }
         decoded.resize(static_cast<size_t>(capacity) * 2);
@@ -187,11 +186,11 @@ private:
         const int samples = swr_convert(converter_.get(), output.data(), capacity,
                                         input.data(), frame_->nb_samples);
         if (samples < 0) {
-            err = XDB_TR("AAC-ELD PCM conversion failed: ") + av_error(samples);
+            err = "AAC-ELD PCM conversion failed: " + av_error(samples);
             return false;
         }
         if (samples != frame_length_) {
-            err = XDB_TR("AAC-ELD PCM conversion returned an invalid sample count");
+            err = "AAC-ELD PCM conversion returned an invalid sample count";
             return false;
         }
         decoded.resize(static_cast<size_t>(samples) * 2);
@@ -212,19 +211,19 @@ std::unique_ptr<AudioDecoder> create_ffmpeg_eld_decoder(int sample_rate, int cha
                                                       int frame_length, std::string &err) {
     err.clear();
     if (sample_rate != 48000 || channels != 2 || (frame_length != 480 && frame_length != 512)) {
-        err = XDB_TR("FFmpeg AAC-ELD requires 48000 Hz, stereo, and 480 or 512 samples per frame");
+        err = "FFmpeg AAC-ELD requires 48000 Hz, stereo, and 480 or 512 samples per frame";
         return nullptr;
     }
     const AVCodec *codec = avcodec_find_decoder_by_name("aac");
     if (codec == nullptr) {
-        err = XDB_TR("FFmpeg has no native AAC decoder");
+        err = "FFmpeg has no native AAC decoder";
         return nullptr;
     }
     CodecPtr ctx(avcodec_alloc_context3(codec));
     PacketPtr packet(av_packet_alloc());
     FramePtr frame(av_frame_alloc());
     if (!ctx || !packet || !frame) {
-        err = XDB_TR("Failed to allocate FFmpeg AAC-ELD decoder");
+        err = "Failed to allocate FFmpeg AAC-ELD decoder";
         return nullptr;
     }
     // AOT=39（escape 31 + 7）、48 kHz index=3、channelConfiguration=2，
@@ -235,7 +234,7 @@ std::unique_ptr<AudioDecoder> create_ffmpeg_eld_decoder(int sample_rate, int cha
                                  static_cast<uint8_t>(frame_length == 480 ? 0x50 : 0x40), 0};
     ctx->extradata = static_cast<uint8_t *>(av_mallocz(asc.size() + AV_INPUT_BUFFER_PADDING_SIZE));
     if (ctx->extradata == nullptr) {
-        err = XDB_TR("Failed to allocate FFmpeg AAC-ELD decoder");
+        err = "Failed to allocate FFmpeg AAC-ELD decoder";
         return nullptr;
     }
     ctx->extradata_size = static_cast<int>(asc.size());
@@ -251,7 +250,7 @@ std::unique_ptr<AudioDecoder> create_ffmpeg_eld_decoder(int sample_rate, int cha
     ctx->thread_count = 1;
     const int status = avcodec_open2(ctx.get(), codec, nullptr);
     if (status < 0) {
-        err = XDB_TR("Failed to initialize FFmpeg AAC-ELD decoder: ") + av_error(status);
+        err = "Failed to initialize FFmpeg AAC-ELD decoder: " + av_error(status);
         return nullptr;
     }
     return std::make_unique<FFmpegEldDecoder>(std::move(ctx), std::move(packet), std::move(frame),

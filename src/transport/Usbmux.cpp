@@ -1,4 +1,3 @@
-#include "i18n/Translation.h"
 #include "Usbmux.h"
 
 #include "transport/TcpConnect.h"
@@ -118,12 +117,12 @@ public:
                     if (!wait(fd, writing, err)) return false;
                     continue;
                 }
-                err = std::string(writing ? XDB_TR("send failed: ") : XDB_TR("recv failed: ")) +
+                err = std::string(writing ? "send failed: " : "recv failed: ") +
                       socket_error_message(code);
             } else {
-                err = writing ? XDB_TR("Peer closed write direction")
-                              : XDB_TR("Peer closed (received only ") + std::to_string(offset) + "/" +
-                                std::to_string(length) + XDB_TR(")");
+                err = writing ? "Peer closed write direction"
+                              : "Peer closed (received only " + std::to_string(offset) + "/" +
+                                std::to_string(length) + ")";
             }
             status = UsbmuxDiscoveryStatus::unavailable;
             return false;
@@ -162,7 +161,7 @@ UsbmuxDiscoveryStatus detail::list_usbmux_devices_at(
     Socket socket(::socket(AF_UNIX, SOCK_STREAM, 0));
 #endif
     if (!socket.valid()) {
-        err = std::string(XDB_TR("socket failed: ")) + socket_error_message();
+        err = std::string("socket failed: ") + socket_error_message();
         return UsbmuxDiscoveryStatus::unavailable;
     }
     const NativeSocket fd = socket.fd();
@@ -173,7 +172,7 @@ UsbmuxDiscoveryStatus detail::list_usbmux_devices_at(
     const int flags = ::fcntl(fd, F_GETFL, 0);
     if (flags < 0 || ::fcntl(fd, F_SETFL, flags | O_NONBLOCK) != 0) {
 #endif
-        err = XDB_TR("Failed to enable nonblocking mode: ") + socket_error_message();
+        err = "Failed to enable nonblocking mode: " + socket_error_message();
         return UsbmuxDiscoveryStatus::unavailable;
     }
     if (!budget.active()) return budget.status;
@@ -206,7 +205,7 @@ UsbmuxDiscoveryStatus detail::list_usbmux_devices_at(
         !budget.transfer(fd, header, sizeof(header), false, err)) return budget.status;
     const uint32_t total = get_u32_le(header);
     if (total < kHeaderLen || total - kHeaderLen > kMaxPayload) {
-        err = XDB_TR("Invalid mux frame length: ") + std::to_string(total);
+        err = "Invalid mux frame length: " + std::to_string(total);
         return UsbmuxDiscoveryStatus::unavailable;
     }
     std::vector<uint8_t> payload(total - kHeaderLen);
@@ -215,12 +214,12 @@ UsbmuxDiscoveryStatus detail::list_usbmux_devices_at(
     auto reply = plist::parse(std::string_view(reinterpret_cast<const char *>(payload.data()), payload.size()));
     if (!budget.active()) return budget.status;
     if (!reply) {
-        err = XDB_TR("mux response is not a valid plist");
+        err = "mux response is not a valid plist";
         return UsbmuxDiscoveryStatus::unavailable;
     }
     const auto *list = reply->find("DeviceList");
     if (!list) {
-        err = XDB_TR("ListDevices response missing DeviceList");
+        err = "ListDevices response missing DeviceList";
         return UsbmuxDiscoveryStatus::unavailable;
     }
     std::vector<DeviceRecord> records;
@@ -260,14 +259,14 @@ std::optional<Usbmux> Usbmux::open(std::string &err) {
 #else
     const int fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0) {
-        err = std::string(XDB_TR("socket failed: ")) + std::strerror(errno);
+        err = std::string("socket failed: ") + std::strerror(errno);
         return std::nullopt;
     }
     sockaddr_un addr{};
     addr.sun_family = AF_UNIX;
     std::strncpy(addr.sun_path, socket_path().c_str(), sizeof(addr.sun_path) - 1);
     if (::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) != 0) {
-        err = XDB_TR("Connect to ") + socket_path() + XDB_TR(" failed: ") + std::strerror(errno);
+        err = "Connect to " + socket_path() + " failed: " + std::strerror(errno);
         ::close(fd);
         return std::nullopt;
     }
@@ -282,8 +281,8 @@ std::optional<Usbmux> Usbmux::open_for_service(std::chrono::milliseconds timeout
     err.clear();
     DiscoveryBudget budget(timeout, cancelled);
     auto fail = [&]() -> std::optional<Usbmux> {
-        if (budget.status == UsbmuxDiscoveryStatus::cancelled) err = XDB_TR("DDI service connection was cancelled");
-        else if (budget.status == UsbmuxDiscoveryStatus::timed_out) err = XDB_TR("DDI service connection timed out");
+        if (budget.status == UsbmuxDiscoveryStatus::cancelled) err = "DDI service connection was cancelled";
+        else if (budget.status == UsbmuxDiscoveryStatus::timed_out) err = "DDI service connection timed out";
         return {};
     };
     if (!budget.active() || !initialize_sockets(err)) return fail();
@@ -300,7 +299,7 @@ std::optional<Usbmux> Usbmux::open_for_service(std::chrono::milliseconds timeout
     const int flags = socket.valid() ? ::fcntl(socket.fd(), F_GETFL, 0) : -1;
     if (flags < 0 || ::fcntl(socket.fd(), F_SETFL, flags | O_NONBLOCK) != 0) {
 #endif
-        err = XDB_TR("Cannot create nonblocking DDI usbmux connection"); return fail();
+        err = "Cannot create nonblocking DDI usbmux connection"; return fail();
     }
     const auto fd = socket.fd();
     if (::connect(fd, reinterpret_cast<sockaddr *>(&address), sizeof(address)) != 0) {
@@ -321,7 +320,7 @@ std::optional<Usbmux> Usbmux::open_for_service(std::chrono::milliseconds timeout
 #else
     if (::fcntl(fd, F_SETFL, flags) != 0) {
 #endif
-        err = XDB_TR("Cannot restore blocking DDI usbmux connection"); return fail();
+        err = "Cannot restore blocking DDI usbmux connection"; return fail();
     }
     Usbmux mux; mux.sock_ = std::move(socket); return mux;
 }
@@ -331,8 +330,8 @@ bool Usbmux::round_trip_for_service(const plist::Value &req, plist::Value &reply
     err.clear();
     DiscoveryBudget budget(timeout, cancelled);
     auto fail = [&]() -> bool {
-        if (budget.status == UsbmuxDiscoveryStatus::cancelled) err = XDB_TR("DDI service connection was cancelled");
-        else if (budget.status == UsbmuxDiscoveryStatus::timed_out) err = XDB_TR("DDI service connection timed out");
+        if (budget.status == UsbmuxDiscoveryStatus::cancelled) err = "DDI service connection was cancelled";
+        else if (budget.status == UsbmuxDiscoveryStatus::timed_out) err = "DDI service connection timed out";
         sock_.close(); return false;
     };
     if (!budget.active() || !sock_.valid()) return fail();
@@ -344,7 +343,7 @@ bool Usbmux::round_trip_for_service(const plist::Value &req, plist::Value &reply
     const int flags = ::fcntl(fd, F_GETFL, 0);
     if (flags < 0 || ::fcntl(fd, F_SETFL, flags | O_NONBLOCK) != 0) {
 #endif
-        err = XDB_TR("Cannot configure nonblocking DDI usbmux connection"); return fail();
+        err = "Cannot configure nonblocking DDI usbmux connection"; return fail();
     }
     auto body = plist::write(req); body += '\0';
     uint8_t header[kHeaderLen];
@@ -355,13 +354,13 @@ bool Usbmux::round_trip_for_service(const plist::Value &req, plist::Value &reply
         !budget.transfer(fd, header, sizeof(header), false, err)) return fail();
     const auto total = get_u32_le(header);
     if (total < kHeaderLen || total - kHeaderLen > kMaxPayload) {
-        err = XDB_TR("Invalid mux frame length: ") + std::to_string(total); return fail();
+        err = "Invalid mux frame length: " + std::to_string(total); return fail();
     }
     std::vector<uint8_t> payload(total - kHeaderLen);
     if (!budget.transfer(fd, payload.data(), payload.size(), false, err)) return fail();
     while (!payload.empty() && payload.back() == 0) payload.pop_back();
     auto parsed = plist::parse(std::string_view(reinterpret_cast<const char *>(payload.data()), payload.size()));
-    if (!parsed || !parsed->is_dict()) { err = XDB_TR("DDI usbmux response is not a plist dictionary"); return fail(); }
+    if (!parsed || !parsed->is_dict()) { err = "DDI usbmux response is not a plist dictionary"; return fail(); }
     reply = std::move(*parsed);
     if (!budget.active()) return fail();
 #ifdef _WIN32
@@ -370,21 +369,21 @@ bool Usbmux::round_trip_for_service(const plist::Value &req, plist::Value &reply
 #else
     if (::fcntl(fd, F_SETFL, flags) != 0) {
 #endif
-        err = XDB_TR("Cannot restore blocking DDI usbmux connection"); return fail();
+        err = "Cannot restore blocking DDI usbmux connection"; return fail();
     }
     return true;
 }
 
 std::optional<Socket> Usbmux::connect_for_service(uint32_t device_id, uint16_t port,
         std::chrono::milliseconds timeout, const std::function<bool()> &cancelled, std::string &err) {
-    if (!port) { err = XDB_TR("DDI usbmux service port is invalid"); return {}; }
+    if (!port) { err = "DDI usbmux service port is invalid"; return {}; }
     auto req = base_request("Connect"); req.set("DeviceID", plist::Value::Int(device_id));
     req.set("PortNumber", plist::Value::Int(htons(port)));
     plist::Value reply;
     if (!round_trip_for_service(req, reply, timeout, cancelled, err)) return {};
     const auto *number = reply.find("Number");
     if (!number || !number->is_int() || number->integer != 0) {
-        err = XDB_TR("DDI usbmux Connect was rejected"); sock_.close(); return {};
+        err = "DDI usbmux Connect was rejected"; sock_.close(); return {};
     }
     return Socket(sock_.release());
 }
@@ -396,7 +395,7 @@ bool Usbmux::read_pair_record_for_service(std::string_view udid, std::vector<uin
     if (!round_trip_for_service(req, reply, timeout, cancelled, err)) return false;
     const auto *data = reply.find("PairRecordData");
     if (!data || data->kind != plist::Kind::Data || data->data.empty()) {
-        err = XDB_TR("ReadPairRecord response missing PairRecordData"); return false;
+        err = "ReadPairRecord response missing PairRecordData"; return false;
     }
     out = data->data; return true;
 }
@@ -440,7 +439,7 @@ bool Usbmux::round_trip(const plist::Value &request, plist::Value &reply, std::s
     // 的话，一个 0xFFFFFFFF 就会让我们先去申请 4GB 内存——那是 DoS，不是解析失败。
     // usbmuxd 的回复实际是 KB 级（设备列表、配对记录），16MB 已经宽到没边。
     if (total < kHeaderLen || total - kHeaderLen > kMaxPayload) {
-        err = XDB_TR("Invalid mux frame length: ") + std::to_string(total);
+        err = "Invalid mux frame length: " + std::to_string(total);
         return false;
     }
     std::vector<uint8_t> payload(total - kHeaderLen);
@@ -453,7 +452,7 @@ bool Usbmux::round_trip(const plist::Value &request, plist::Value &reply, std::s
     auto parsed = plist::parse(std::string_view(
         reinterpret_cast<const char *>(payload.data()), payload.size()));
     if (!parsed) {
-        err = XDB_TR("mux response is not a valid plist");
+        err = "mux response is not a valid plist";
         return false;
     }
     reply = std::move(*parsed);
@@ -467,7 +466,7 @@ bool Usbmux::list_devices(std::vector<DeviceRecord> &out, std::string &err) {
     }
     const auto *list = reply.find("DeviceList");
     if (list == nullptr) {
-        err = XDB_TR("ListDevices response missing DeviceList");
+        err = "ListDevices response missing DeviceList";
         return false;
     }
     for (const auto &rec : list->array) {
@@ -483,7 +482,7 @@ bool Usbmux::list_devices_for_service(std::vector<DeviceRecord> &out,
     if (!round_trip_for_service(base_request("ListDevices"), reply, timeout, cancelled, err)) return false;
     const auto *list = reply.find("DeviceList");
     if (!list || list->kind != plist::Kind::Array) {
-        err = XDB_TR("ListDevices response missing DeviceList"); return false;
+        err = "ListDevices response missing DeviceList"; return false;
     }
     for (const auto &rec : list->array) out.push_back(parse_record(rec));
     return true;
@@ -502,7 +501,7 @@ std::optional<Socket> Usbmux::connect(uint32_t device_id, uint16_t port, std::st
     const auto *number_val = reply.find("Number");
     const int number = number_val != nullptr ? static_cast<int>(number_val->as_int_or(-1)) : -1;
     if (number != 0) {
-        err = XDB_TR("Connect failed, usbmuxd returned Number=") + std::to_string(number);
+        err = "Connect failed, usbmuxd returned Number=" + std::to_string(number);
         return std::nullopt;
     }
     // 此后同一 socket 即到 device:port 的透明通道，把 fd 交出去。
@@ -523,8 +522,8 @@ bool Usbmux::read_pair_record(std::string_view udid, std::vector<uint8_t> &out,
     const auto *data = reply.find("PairRecordData");
     if (data == nullptr || data->data.empty()) {
         const auto *e = reply.find("MessageType");
-        err = XDB_TR("ReadPairRecord response missing PairRecordData (response ") +
-              std::string(e ? e->as_string_or("?") : "?") + XDB_TR("); device may not trust this computer yet");
+        err = "ReadPairRecord response missing PairRecordData (response " +
+              std::string(e ? e->as_string_or("?") : "?") + "); device may not trust this computer yet";
         return false;
     }
     out = data->data;

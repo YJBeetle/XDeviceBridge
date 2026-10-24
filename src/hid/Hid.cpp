@@ -1,4 +1,3 @@
-#include "i18n/Translation.h"
 #include "Hid.h"
 #include "TextReports.h"
 
@@ -95,7 +94,7 @@ uint16_t normalize(double v) {    if (!(v > 0.0)) {  // 非正值及 NaN 均映�
 std::unique_ptr<Service> Service::open(xdb::remote::Device &device, std::string &err,
                                       bool verbose, std::stop_token cancel) {
     if (!device.rsd().has_service(kServiceName)) {
-        err = XDB_TR("RSD directory missing ") + std::string(kServiceName);
+        err = "RSD directory missing " + std::string(kServiceName);
         return nullptr;
     }
     auto conn = device.connect(kServiceName, err, verbose, cancel);
@@ -117,7 +116,7 @@ bool Service::surfaces(std::vector<Surface> &out, std::string &err) {
     const auto *list = reply.find("connectedServices");
     if (list == nullptr) {
         // 必需字段缺失时保留原始回复供诊断，不推断其它字段为服务目录。
-        err = XDB_TR("connectedServices response missing connectedServices: ") + xpc::describe(reply);
+        err = "connectedServices response missing connectedServices: " + xpc::describe(reply);
         return false;
     }
     const auto each = [&](const xpc::Value &v) {
@@ -175,7 +174,7 @@ bool Service::tap(double x, double y, int hold_ms, std::string &err) {
 bool Service::stroke(const std::vector<std::pair<double, double>> &points, int step_ms,
                      std::string &err) {
     if (points.empty()) {
-        err = XDB_TR("Stroke requires at least one point");
+        err = "Stroke requires at least one point";
         return false;
     }
     for (std::size_t i = 0; i < points.size(); ++i) {
@@ -236,7 +235,7 @@ bool Service::type_text(const std::string &text, int hold_ms, std::string &err, 
 std::unique_ptr<Buttons> Buttons::open(xdb::remote::Device &device, std::string &err,
                                        bool verbose) {
     if (!device.rsd().has_service(kIndigoServiceName)) {
-        err = XDB_TR("RSD directory missing ") + std::string(kIndigoServiceName);
+        err = "RSD directory missing " + std::string(kIndigoServiceName);
         return nullptr;
     }
     auto conn = device.connect(kIndigoServiceName, err, verbose);

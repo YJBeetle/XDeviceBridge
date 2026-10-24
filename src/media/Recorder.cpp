@@ -1,4 +1,3 @@
-#include "i18n/Translation.h"
 #include "media/Recorder.h"
 
 #include "media/RecordingClock.h"
@@ -117,7 +116,7 @@ struct Recorder::Impl {
         {
             std::lock_guard lock(mutex);
             if (completed) return;
-            if (first_error.empty()) first_error = reason.empty() ? XDB_TR("Recording failed") : reason;
+            if (first_error.empty()) first_error = reason.empty() ? "Recording failed" : reason;
             sealed = true;
         }
         changed.notify_all();
@@ -139,7 +138,7 @@ struct Recorder::Impl {
         if (sealed || !first_error.empty()) return false;
         if (cost > options.encoded_budget - owned_bytes ||
             ingress.size() >= max_ingress_events || (media && media_events >= max_media_events)) {
-            fail_locked(XDB_TR("Recorder input exceeds its encoded-byte or event budget"));
+            fail_locked("Recorder input exceeds its encoded-byte or event budget");
             return false;
         }
         // 先预留再复制，两个生产者不能同时持有未计入预算的大编码副本。
@@ -155,7 +154,7 @@ struct Recorder::Impl {
         } catch (...) {
             owned_bytes -= cost;
             if (media) --media_events;
-            fail_locked(XDB_TR("Cannot allocate the Recorder input buffer"));
+            fail_locked("Cannot allocate the Recorder input buffer");
             return false;
         }
         changed.notify_one();
@@ -164,7 +163,7 @@ struct Recorder::Impl {
 
     bool session_valid(Stream& stream, const Event& event) {
         if (!stream.begun || stream.session != event.session) {
-            fail(XDB_TR("Recording media belongs to a missing or changed session"));
+            fail("Recording media belongs to a missing or changed session");
             return false;
         }
         return true;
@@ -188,7 +187,7 @@ struct Recorder::Impl {
                 [&](const auto& known) { return same_clock(known, report); });
             if (duplicate) return;
             if (stream.early_reports.size() >= max_early_reports) {
-                fail(XDB_TR("Recording early sender-report budget exceeded"));
+                fail("Recording early sender-report budget exceeded");
                 return;
             }
             stream.early_reports.push_back(report);
@@ -198,7 +197,7 @@ struct Recorder::Impl {
             ? std::max(*stream.media_high, *stream.report_high) : *stream.media_high;
         const auto ticks = rt::RtpTimestamp::nearest(report.rtp_timestamp, reference);
         if (ntp(report) == 0 || !ticks) {
-            fail(XDB_TR("Recording sender report has no usable NTP/RTP clock"));
+            fail("Recording sender report has no usable NTP/RTP clock");
             return;
         }
         if (!common_reference) common_reference = ntp(report);
@@ -220,11 +219,11 @@ struct Recorder::Impl {
         if (!session_valid(stream, event)) return false;
         if (!stream.source) stream.source = event.source;
         if (stream.source != event.source) {
-            fail(XDB_TR("Recording media source changed within the session"));
+            fail("Recording media source changed within the session");
             return false;
         }
         if (stream.last_media && ticks <= *stream.last_media) {
-            fail(XDB_TR("Recording media timestamps do not advance within the track"));
+            fail("Recording media timestamps do not advance within the track");
             return false;
         }
         stream.last_media = ticks;
@@ -243,7 +242,7 @@ struct Recorder::Impl {
         auto& stream = streams[0];
         if (!session_valid(stream, event)) return;
         if (stream.source && stream.source != event.source) {
-            fail(XDB_TR("Recording media source changed within the session")); return;
+            fail("Recording media source changed within the session"); return;
         }
         if (!event.vcl) return; // parameter-only prefixes belong to the next image
         if (!bind_media(stream, event, event.ticks)) return;
@@ -256,11 +255,11 @@ struct Recorder::Impl {
         std::optional<RecordingVideoConfig> checked;
         if (first || changed) {
             if (!event.idr) {
-                fail(XDB_TR("Recording HEVC configuration changes require an IDR")); return;
+                fail("Recording HEVC configuration changes require an IDR"); return;
             }
             checked = inspect_recording_video_config(event.vps, event.sps, event.pps);
             if (!checked->permits_equal_dts_pts()) {
-                fail(checked->error.empty() ? XDB_TR("Recording HEVC requires a no-reorder configuration") : checked->error);
+                fail(checked->error.empty() ? "Recording HEVC requires a no-reorder configuration" : checked->error);
                 return;
             }
             const auto syntax = inspect_recording_idr(event.nals, *checked);
@@ -277,7 +276,7 @@ struct Recorder::Impl {
             if (changed && type >= 32 && type <= 34) continue;
             if (nal.size() > kMaxRecordingMuxerPacketBytes - 4 ||
                 bytes > kMaxRecordingMuxerPacketBytes - 4 - nal.size()) {
-                fail(XDB_TR("Recording HEVC AU is incomplete or exceeds the packet budget")); return;
+                fail("Recording HEVC AU is incomplete or exceeds the packet budget"); return;
             }
             bytes += nal.size() + 4;
         }
@@ -292,7 +291,7 @@ struct Recorder::Impl {
                 exceeded = extra > options.encoded_budget - owned_bytes;
                 if (!exceeded) { owned_bytes += extra; event.cost += extra; }
             }
-            if (exceeded) { fail(XDB_TR("Recorder input exceeds its encoded-byte or event budget")); return; }
+            if (exceeded) { fail("Recorder input exceeds its encoded-byte or event budget"); return; }
         }
         event.bytes.reserve(bytes);
         auto append = [&](const Nal& nal) {
@@ -326,7 +325,7 @@ struct Recorder::Impl {
         auto& stream = streams[index(event.track)];
         switch (event.kind) {
             case Kind::Begin:
-                if (stream.begun) { fail(XDB_TR("Recording track session was started again")); return; }
+                if (stream.begun) { fail("Recording track session was started again"); return; }
                 stream.begun = true;
                 stream.session = event.session;
                 stream.source = event.source;
@@ -336,7 +335,7 @@ struct Recorder::Impl {
                 if (!session_valid(stream, event)) return;
                 const auto ticks = stream.timestamp.observe(event.timestamp);
                 if (!ticks || *ticks > std::numeric_limits<int64_t>::max() - 480) {
-                    fail(XDB_TR("Recording audio RTP timestamp has an ambiguous wrap or overflows"));
+                    fail("Recording audio RTP timestamp has an ambiguous wrap or overflows");
                     return;
                 }
                 if (!bind_media(stream, event, *ticks)) return;
@@ -353,7 +352,7 @@ struct Recorder::Impl {
                     if (std::any_of(stream.early_reports.begin(), stream.early_reports.end(),
                         [&](const auto& known) { return same_clock(known, event.report); })) return;
                     if (stream.early_reports.size() >= max_early_reports) {
-                        fail(XDB_TR("Recording early sender-report budget exceeded")); return;
+                        fail("Recording early sender-report budget exceeded"); return;
                     }
                     stream.early_reports.push_back(event.report);
                 } else accept_report(stream, event.report);
@@ -375,12 +374,12 @@ struct Recorder::Impl {
             if (!selected(i)) continue;
             const auto& stream = streams[i];
             if (stream.pending.empty()) {
-                if (mode == RecordingClock::Mode::Final) fail(XDB_TR("A selected recording track has no approved media"));
+                if (mode == RecordingClock::Mode::Final) fail("A selected recording track has no approved media");
                 return false;
             }
             const auto time = mapped(stream, stream.pending.front(), mode);
             if (time.state == RecordingClock::State::Error) {
-                fail(XDB_TR("Cannot map the first recording packet from trusted sender reports")); return false;
+                fail("Cannot map the first recording packet from trusted sender reports"); return false;
             }
             if (time.state == RecordingClock::State::Pending) return false;
             earliest = earliest ? std::min(*earliest, time.begin_us) : time.begin_us;
@@ -406,7 +405,7 @@ struct Recorder::Impl {
     std::optional<int64_t> quantize(long double value) {
         const long double rounded = std::round(value);
         if (!std::isfinite(rounded) || rounded < 0 || rounded >= std::ldexp(1.0L, 63)) {
-            fail(XDB_TR("Recording time cannot be represented as nonnegative microseconds"));
+            fail("Recording time cannot be represented as nonnegative microseconds");
             return std::nullopt;
         }
         return static_cast<int64_t>(rounded);
@@ -415,7 +414,7 @@ struct Recorder::Impl {
     bool write_mp4_tail(int64_t duration) {
         const auto& tail = *video_tail;
         if (duration <= 0 || tail.pts > std::numeric_limits<int64_t>::max() - duration) {
-            fail(XDB_TR("MP4 recording video duration is not positive or overflows"));
+            fail("MP4 recording video duration is not positive or overflows");
             return false;
         }
         std::string error;
@@ -441,18 +440,18 @@ struct Recorder::Impl {
                 const auto time = mapped(stream, packet, mode);
                 if (time.state == RecordingClock::State::Pending) break;
                 if (time.state == RecordingClock::State::Error) {
-                    fail(XDB_TR("Recording clock cannot map a packet within its SR/extrapolation budget")); return;
+                    fail("Recording clock cannot map a packet within its SR/extrapolation budget"); return;
                 }
                 const auto pts = quantize(time.begin_us - *origin);
                 const auto end = quantize(time.end_us - *origin);
                 if (!pts || !end) return;
                 if (i == 1 && *end <= *pts) {
-                    fail(XDB_TR("Recording audio duration is not positive after clock mapping")); return;
+                    fail("Recording audio duration is not positive after clock mapping"); return;
                 }
                 if (i == 0 && options.format == RecordingMuxer::Format::Mp4) {
                     if (video_tail) {
                         if (*pts <= video_tail->pts) {
-                            fail(XDB_TR("MP4 recording video timestamps do not advance after clock mapping"));
+                            fail("MP4 recording video timestamps do not advance after clock mapping");
                             return;
                         }
                         if (!write_mp4_tail(*pts - video_tail->pts)) return;
@@ -563,16 +562,16 @@ struct Recorder::Impl {
                 if (final) {
                     for (std::size_t i = 0; i < streams.size(); ++i) {
                         if (!selected(i)) continue;
-                        if (!streams[i].wrote_media) fail(XDB_TR("A selected recording track did not produce a completed packet"));
+                        if (!streams[i].wrote_media) fail("A selected recording track did not produce a completed packet");
                     }
                     break;
                 }
                 if (Time::now() >= next_deadline()) {
-                    fail(XDB_TR("Recording waited too long for approved media or trusted sender reports"));
+                    fail("Recording waited too long for approved media or trusted sender reports");
                     break;
                 }
             }
-        } catch (...) { fail(XDB_TR("Recording worker could not process its input")); }
+        } catch (...) { fail("Recording worker could not process its input"); }
         cleanup();
         std::lock_guard lock(mutex);
         completed = true;
@@ -586,17 +585,17 @@ bool Recorder::includes_audio() const { return impl_->options.include_audio; }
 
 std::unique_ptr<Recorder> Recorder::start(const Options& options, std::string& error) {
     if (!options.include_video && !options.include_audio) {
-        error = XDB_TR("Recording requires at least one selected track");
+        error = "Recording requires at least one selected track";
         return nullptr;
     }
     if (!options.include_video && options.video_orientation != 0) {
-        error = XDB_TR("Audio-only recording requires zero video orientation");
+        error = "Audio-only recording requires zero video orientation";
         return nullptr;
     }
     if (!RecordingMuxer::validate_video_orientation(options.format, options.video_orientation, error))
         return nullptr;
     if (!RecordingMuxer::available()) {
-        error = XDB_TR("Container recording requires libavformat and libavcodec");
+        error = "Container recording requires libavformat and libavcodec";
         return nullptr;
     }
     if (options.path.empty() || options.path.find('\0') != std::string::npos ||
@@ -604,7 +603,7 @@ std::unique_ptr<Recorder> Recorder::start(const Options& options, std::string& e
         options.clock_wait.count() <= 0 || options.clock_wait > std::chrono::milliseconds{5000} ||
         options.final_extrapolation.count() < 0 ||
         options.final_extrapolation > std::chrono::microseconds{1500000}) {
-        error = XDB_TR("Invalid Recorder path or bounded buffering/clock limits");
+        error = "Invalid Recorder path or bounded buffering/clock limits";
         return nullptr;
     }
     try {
@@ -612,7 +611,7 @@ std::unique_ptr<Recorder> Recorder::start(const Options& options, std::string& e
         recorder->impl_->worker = std::thread([state = recorder->impl_.get()] { state->loop(); });
         return recorder;
     } catch (...) {
-        error = XDB_TR("Cannot create the recording worker");
+        error = "Cannot create the recording worker";
         return nullptr;
     }
 }
@@ -626,7 +625,7 @@ bool Recorder::begin_track(Track track, std::span<const uint8_t> session,
                            std::optional<uint32_t> source) {
     if (!valid_track(track) || session.size() != 16 ||
         !impl_->selected(index(track))) {
-        fail(XDB_TR("Recording track selection or session UUID is invalid")); return false;
+        fail("Recording track selection or session UUID is invalid"); return false;
     }
     return impl_->admit(0, false, [&](Impl::Event& event) {
         event.kind = Impl::Kind::Begin;
@@ -639,29 +638,29 @@ bool Recorder::begin_track(Track track, std::span<const uint8_t> session,
 bool Recorder::video(std::span<const uint8_t> session, uint32_t source, int64_t ticks,
                      const std::vector<Nal>& nals, const Nal& vps, const Nal& sps, const Nal& pps) {
     if (!impl_->options.include_video) {
-        fail(XDB_TR("This recording has no video track")); return false;
+        fail("This recording has no video track"); return false;
     }
-    if (session.size() != 16) { fail(XDB_TR("Recording session UUID is invalid")); return false; }
+    if (session.size() != 16) { fail("Recording session UUID is invalid"); return false; }
     if (nals.empty() || nals.size() > kMaxRecordingIdrNals) {
-        fail(XDB_TR("Recording HEVC AU is empty or exceeds the NAL-count budget")); return false;
+        fail("Recording HEVC AU is empty or exceeds the NAL-count budget"); return false;
     }
     std::size_t size = 0;
     for (const auto& nal : nals) {
         if (nal.size() < 2 || nal.size() > kMaxRecordingMuxerPacketBytes - 4 ||
             size > kMaxRecordingMuxerPacketBytes - 4 - nal.size()) {
-            fail(XDB_TR("Recording HEVC AU is incomplete or exceeds the packet budget")); return false;
+            fail("Recording HEVC AU is incomplete or exceeds the packet budget"); return false;
         }
         // 单 base layer / temporal layer 配置不能混入另一层或非法 HEVC 头。
         if ((nal[0] & 0x81) != 0 || (nal[1] >> 3) != 0 || (nal[1] & 7) != 1) {
-            fail(XDB_TR("Recording HEVC AU has an invalid or unsupported layer header")); return false;
+            fail("Recording HEVC AU has an invalid or unsupported layer header"); return false;
         }
         size += nal.size() + 4;
     }
-    if (size == 0) { fail(XDB_TR("Recording HEVC AU is empty")); return false; }
+    if (size == 0) { fail("Recording HEVC AU is empty"); return false; }
     std::size_t parameters = 0;
     for (const auto* nal : {&vps, &sps, &pps}) {
         if (nal->size() > kMaxRecordingVideoParameterBytes - parameters) {
-            fail(XDB_TR("Recording HEVC parameters exceed the configuration budget")); return false;
+            fail("Recording HEVC parameters exceed the configuration budget"); return false;
         }
         parameters += nal->size();
     }
@@ -686,7 +685,7 @@ bool Recorder::audio(std::span<const uint8_t> session, uint32_t source, uint32_t
                      std::span<const uint8_t> payload) {
     if (!impl_->options.include_audio || session.size() != 16 || payload.empty() ||
         payload.size() > kMaxRecordingMuxerPacketBytes) {
-        fail(XDB_TR("Recording AAC-ELD track, session or payload is invalid")); return false;
+        fail("Recording AAC-ELD track, session or payload is invalid"); return false;
     }
     return impl_->admit(payload.size() * 2, true, [&](Impl::Event& event) {
         event.kind = Impl::Kind::Audio;
@@ -702,7 +701,7 @@ bool Recorder::sender_report(Track track, std::span<const uint8_t> session,
                              const rt::SenderReport& report) {
     if (!valid_track(track) || session.size() != 16 ||
         !impl_->selected(index(track))) {
-        fail(XDB_TR("Recording sender-report track or session is invalid")); return false;
+        fail("Recording sender-report track or session is invalid"); return false;
     }
     return impl_->admit(0, false, [&](Impl::Event& event) {
         event.kind = Impl::Kind::Report;

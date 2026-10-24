@@ -1,6 +1,5 @@
 #include "remote/WifiPairing.h"
 
-#include "i18n/Translation.h"
 #include "transport/Socket.h"
 #include "wifi/DiscoveryIdentity.h"
 #include "wifi/Mdns.h"
@@ -30,11 +29,11 @@ struct Deadline {
     const WifiPairingOptions &options;
     bool active(std::string &error) const {
         if (options.should_cancel && options.should_cancel()) {
-            error = XDB_TR("Wi-Fi pairing cancelled");
+            error = "Wi-Fi pairing cancelled";
             return false;
         }
         if (Clock::now() >= until) {
-            error = XDB_TR("Wi-Fi pairing timed out");
+            error = "Wi-Fi pairing timed out";
             return false;
         }
         return true;
@@ -53,7 +52,7 @@ bool nonblocking(Socket &socket, std::string &error) {
     const int flags = ::fcntl(socket.fd(), F_GETFL, 0);
     const bool ok = flags >= 0 && ::fcntl(socket.fd(), F_SETFL, flags | O_NONBLOCK) == 0;
 #endif
-    if (!ok) error = XDB_TR("Cannot configure Wi-Fi pairing socket: ") + transport::socket_error_message();
+    if (!ok) error = "Cannot configure Wi-Fi pairing socket: " + transport::socket_error_message();
     return ok;
 }
 
@@ -65,7 +64,7 @@ bool wait(Socket &socket, bool writing, const Deadline &deadline, std::string &e
                                                   std::min(50, deadline.remaining()));
         if (status > 0) return true;
         if (status < 0 && transport::socket_error() != transport::kSocketInterrupted) {
-            error = XDB_TR("Wi-Fi pairing socket wait failed: ") + transport::socket_error_message();
+            error = "Wi-Fi pairing socket wait failed: " + transport::socket_error_message();
             return false;
         }
     }
@@ -105,11 +104,11 @@ class PairingStream final : public wifi::ByteStream {
             if (done < 0) {
                 const int code = transport::socket_error();
                 if (code == transport::kSocketInterrupted || transport::socket_read_timed_out(code)) continue;
-                error = XDB_TR("Wi-Fi pairing socket I/O failed: ") + transport::socket_error_message(code);
+                error = "Wi-Fi pairing socket I/O failed: " + transport::socket_error_message(code);
                 return false;
             }
             if (done == 0) {
-                error = XDB_TR("Wi-Fi pairing connection closed");
+                error = "Wi-Fi pairing connection closed";
                 return false;
             }
             bytes += done;
@@ -166,7 +165,7 @@ std::optional<Socket> connect_numeric(const wifi::mdns::Endpoint &endpoint,
     addrinfo *raw = nullptr;
     const auto service = std::to_string(endpoint.port);
     const int rc = ::getaddrinfo(endpoint.address.c_str(), service.c_str(), &hints, &raw);
-    if (rc != 0 || !raw) { error = XDB_TR("Invalid numeric Wi-Fi pairing endpoint"); return std::nullopt; }
+    if (rc != 0 || !raw) { error = "Invalid numeric Wi-Fi pairing endpoint"; return std::nullopt; }
     std::unique_ptr<addrinfo, decltype(&freeaddrinfo)> addresses(raw, freeaddrinfo);
     for (auto *ai = raw; ai && deadline.active(error); ai = ai->ai_next) {
         Socket socket(::socket(ai->ai_family, SOCK_STREAM, IPPROTO_TCP));
@@ -243,22 +242,22 @@ bool pairing_target(const std::string &path, const std::string &udid,
     const auto status = std::filesystem::symlink_status(path, ec);
     if (std::filesystem::exists(status)) {
         if (!std::filesystem::is_regular_file(status)) {
-            err = XDB_TR("Wi-Fi pairing record is not a regular file; refusing replacement");
+            err = "Wi-Fi pairing record is not a regular file; refusing replacement";
             return false;
         }
         std::string load_error;
         const auto previous = wifi::load_record(path, load_error);
         if (!previous) {
-            err = XDB_TR("Cannot read existing Wi-Fi pairing record: ") + load_error;
+            err = "Cannot read existing Wi-Fi pairing record: " + load_error;
             return false;
         }
         if (previous->udid != udid) {
-            err = XDB_TR("Existing Wi-Fi pairing record belongs to another device");
+            err = "Existing Wi-Fi pairing record belongs to another device";
             return false;
         }
         existing = wifi::format_record(*previous);
     } else if (ec && ec != std::errc::no_such_file_or_directory) {
-        err = XDB_TR("Cannot inspect the Wi-Fi pairing record path");
+        err = "Cannot inspect the Wi-Fi pairing record path";
         return false;
     }
     return true;
@@ -272,18 +271,18 @@ bool detail::admit_wifi_pairing(const wifi::PairRecord &record,
     // and public key, but the responder has not yet emitted its M6 identity.
     if (record.udid.empty() || !record_text_valid(record.udid) || !record.has_peer_identity() ||
         record.peer_alt_irk.size() != 16 || (!options.udid.empty() && options.udid != record.udid)) {
-        err = XDB_TR("Wi-Fi pairing returned an incomplete or unexpected device identity");
+        err = "Wi-Fi pairing returned an incomplete or unexpected device identity";
         return false;
     }
     try {
         if (options.should_cancel && options.should_cancel()) {
-            err = XDB_TR("Wi-Fi pairing cancelled");
+            err = "Wi-Fi pairing cancelled";
             return false;
         }
         std::optional<std::string> existing;
         return pairing_target(pairing_record_path(record.udid, options), record.udid, existing, err);
     } catch (const std::exception &) {
-        err = XDB_TR("Wi-Fi pairing workflow failed before completion");
+        err = "Wi-Fi pairing workflow failed before completion";
         return false;
     }
 }
@@ -297,7 +296,7 @@ PairingResult detail::save_wifi_pairing(const wifi::PairRecord &record,
         !record_text_valid(record.udid) || !record_text_valid(record.host_identifier) ||
         !record_text_valid(record.advertised_identifier) ||
         (!options.udid.empty() && options.udid != record.udid)) {
-        result.error = XDB_TR("Wi-Fi pairing returned an incomplete or unexpected device identity");
+        result.error = "Wi-Fi pairing returned an incomplete or unexpected device identity";
         return result;
     }
     result.path = pairing_record_path(record.udid, options);
@@ -305,33 +304,33 @@ PairingResult detail::save_wifi_pairing(const wifi::PairRecord &record,
         std::optional<std::string> existing;
         if (!pairing_target(result.path, record.udid, existing, result.error)) return result;
         if (options.should_cancel && options.should_cancel()) {
-            result.error = XDB_TR("Wi-Fi pairing cancelled"); return result;
+            result.error = "Wi-Fi pairing cancelled"; return result;
         }
         std::string error;
         const auto verified = verify(record, error);
         if (verified.outcome != wifi::VerifyOutcome::Paired) {
-            result.error = XDB_TR("New Wi-Fi pairing record verification failed: ") +
+            result.error = "New Wi-Fi pairing record verification failed: " +
                            (verified.error.empty() ? error : verified.error);
             return result;
         }
         if (options.should_cancel && options.should_cancel()) {
-            result.error = XDB_TR("Wi-Fi pairing cancelled"); return result;
+            result.error = "Wi-Fi pairing cancelled"; return result;
         }
         std::optional<std::string> current;
         if (!pairing_target(result.path, record.udid, current, result.error)) return result;
         if (current != existing) {
-            result.error = XDB_TR("Wi-Fi pairing record changed during verification; retry pairing");
+            result.error = "Wi-Fi pairing record changed during verification; retry pairing";
             return result;
         }
         const bool saved = existing ? wifi::save_record(result.path, record, error)
                                     : wifi::save_record_new(result.path, record, error);
         if (!saved) {
-            result.error = XDB_TR("Cannot save the verified Wi-Fi pairing record: ") + error;
+            result.error = "Cannot save the verified Wi-Fi pairing record: " + error;
             return result;
         }
         result.ok = true;
     } catch (const std::exception &) {
-        result.error = XDB_TR("Wi-Fi pairing workflow failed before completion");
+        result.error = "Wi-Fi pairing workflow failed before completion";
     }
     return result;
 }
@@ -339,7 +338,7 @@ PairingResult detail::save_wifi_pairing(const wifi::PairRecord &record,
 PairingResult pair_wifi_remote(const WifiPairingOptions &options) {
     PairingResult result;
     if (options.timeout_ms < 1 || options.timeout_ms > 300000 || !options.display_pin) {
-        result.error = XDB_TR("Wi-Fi pairing requires a PIN display callback and a timeout between 1 and 300000 ms");
+        result.error = "Wi-Fi pairing requires a PIN display callback and a timeout between 1 and 300000 ms";
         return result;
     }
     const Deadline deadline{Clock::now() + std::chrono::milliseconds(options.timeout_ms), options};
@@ -378,7 +377,7 @@ PairingResult pair_wifi_remote(const WifiPairingOptions &options) {
         advertisement.advertise_ipv6 = v6.has_value();
         auto advertised = wifi::mdns::Advertiser::start(advertisement, result.error);
         if (!advertised) return result;
-        progress(options, XDB_TR("Open Settings > Privacy & Security > Developer Mode on the device and select Pair with this xdb computer"));
+        progress(options, "Open Settings > Privacy & Security > Developer Mode on the device and select Pair with this xdb computer");
         progress(options, host.host_name);
         Socket accepted;
         std::string peer_address;
@@ -391,14 +390,14 @@ PairingResult pair_wifi_remote(const WifiPairingOptions &options) {
                 if (fd == transport::kInvalidSocket) {
                     const auto code = transport::socket_error();
                     if (code == transport::kSocketInterrupted || transport::socket_read_timed_out(code)) continue;
-                    result.error = XDB_TR("Cannot accept Wi-Fi pairing connection: ") + transport::socket_error_message(code);
+                    result.error = "Cannot accept Wi-Fi pairing connection: " + transport::socket_error_message(code);
                     return result;
                 }
                 accepted.reset(fd);
                 char numeric[NI_MAXHOST];
                 if (::getnameinfo(reinterpret_cast<const sockaddr *>(&peer), length, numeric, sizeof(numeric),
                                    nullptr, 0, NI_NUMERICHOST) != 0 || !nonblocking(accepted, result.error)) {
-                    if (result.error.empty()) result.error = XDB_TR("Cannot identify the Wi-Fi pairing peer address");
+                    if (result.error.empty()) result.error = "Cannot identify the Wi-Fi pairing peer address";
                     return result;
                 }
                 peer_address = numeric;
@@ -423,7 +422,7 @@ PairingResult pair_wifi_remote(const WifiPairingOptions &options) {
         if (!setup || !deadline.active(result.error)) return result;
         accepted.close();
         advertised.reset();
-        progress(options, XDB_TR("Reconnecting to verify the new Wi-Fi pairing record"));
+        progress(options, "Reconnecting to verify the new Wi-Fi pairing record");
         auto verify = [&](const wifi::PairRecord &record, std::string &error) {
             wifi::PairVerifyResult failed;
             std::vector<wifi::mdns::Endpoint> candidates;
@@ -461,7 +460,7 @@ PairingResult pair_wifi_remote(const WifiPairingOptions &options) {
         if (!saved.ok && !deadline.active(result.error)) saved.error = result.error;
         return saved;
     } catch (const std::exception &) {
-        result.error = XDB_TR("Wi-Fi pairing workflow failed before completion");
+        result.error = "Wi-Fi pairing workflow failed before completion";
         return result;
     }
 }

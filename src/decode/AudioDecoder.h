@@ -1,6 +1,5 @@
 #pragma once
 
-#include "i18n/Translation.h"
 
 #include <cstdint>
 #include <memory>
@@ -48,7 +47,6 @@ inline constexpr bool kHaveAudioDecoder = false;
 #endif
 
 inline constexpr const char *kNoAudioDecoderMessage =
-    XDB_N_(
-        "AAC-ELD decoding is unavailable in this build. Video can continue without audio.");
+        "AAC-ELD decoding is unavailable in this build. Video can continue without audio.";
 
 }  // namespace xdb
