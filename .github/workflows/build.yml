@@ -10,20 +10,55 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Configure client only
-        run: cmake -S . -B build -DXDB_BUILD_SERVER=OFF -DXDB_BUILD_CLI=OFF -DXDB_BUILD_TESTS=OFF
+        run: cmake -S . -B build -DXDB_BUILD_SERVER=OFF -DXDB_BUILD_CLI=OFF -DXDB_BUILD_TESTS=ON
       - name: Build
         run: cmake --build build --config Release --parallel 4
+      - name: Test client
+        run: ctest --test-dir build --config Release --output-on-failure
   server:
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
-      - name: Install dependencies
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build libssl-dev libcurl4-openssl-dev libavcodec-dev libavutil-dev libswscale-dev libswresample-dev libavformat-dev
-      - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
-      - name: Build
-        run: cmake --build build --parallel 4
-      - name: Test
-        run: ctest --test-dir build --output-on-failure
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install ninja pkg-config openssl ffmpeg
+          echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl)" >> "$GITHUB_ENV"
+      - uses: msys2/setup-msys2@v2
+        if: runner.os == 'Windows'
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            git
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-openssl
+            mingw-w64-ucrt-x86_64-curl
+            mingw-w64-ucrt-x86_64-ffmpeg
+      - name: Build and test (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DOPENSSL_ROOT_DIR="${OPENSSL_ROOT_DIR:-}"
+          cmake --build build --parallel 4
+          ctest --test-dir build --output-on-failure
+      - name: Build and test (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DPython3_EXECUTABLE="$(cygpath -m "$(command -v python.exe)")"
+          cmake --build build --parallel 4
+          ctest --test-dir build --output-on-failure
