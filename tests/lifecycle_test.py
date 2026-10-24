@@ -69,6 +69,16 @@ with tempfile.TemporaryDirectory(prefix='xdb-lifecycle-') as tmp:
         pid = info(port)['pid']
         run(port, 'start-server', '--data-dir', str(Path(tmp) / 'private data'))
         assert info(port)['pid'] == pid, 'start-server replaced a running server'
+        shell_input = '\n'.join(['{bad json', json.dumps({'method': 'server.info'}),
+                                json.dumps({'method': 'server.info', 'params': []}),
+                                json.dumps({'method': 123}), json.dumps({'method': 'server.info'}), ''])
+        shell = subprocess.run([str(exe), '--port', str(port), 'rpc-shell'], input=shell_input,
+                               capture_output=True, text=True, encoding='utf-8', timeout=12)
+        replies = [json.loads(line) for line in shell.stdout.splitlines()]
+        assert shell.returncode == 0 and len(replies) == 2 and all(
+            value['ok'] and value['result']['pid'] == pid for value in replies), (shell.stdout, shell.stderr)
+        assert shell.stderr.count('xdb rpc-shell:') == 3, shell.stderr
+
         held = client.xdb_client_connect(port, None, None)
         assert held
         try:

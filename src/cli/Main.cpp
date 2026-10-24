@@ -240,8 +240,22 @@ int main(int argc, char **argv) {
             while (std::getline(std::cin, line)) {
                 if (line.empty())
                     continue;
-                auto v = xdb::ipc::parse_json(line);
-                request(v.at("method").get<std::string>(), v.value("params", Json::object()));
+                std::string method;
+                Json params;
+                try {
+                    auto v = xdb::ipc::parse_json(line);
+                    method = v.at("method").get<std::string>();
+                    params = v.value("params", Json::object());
+                    if (method.empty() || !params.is_object())
+                        throw std::invalid_argument("Expected a non-empty method string and an object params");
+                } catch (const Json::exception &e) {
+                    std::cerr << "xdb rpc-shell: " << e.what() << '\n';
+                    continue;
+                } catch (const std::invalid_argument &e) {
+                    std::cerr << "xdb rpc-shell: " << e.what() << '\n';
+                    continue;
+                }
+                request(method, params);
             }
             return 0;
         }
