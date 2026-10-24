@@ -15,11 +15,15 @@
 - Existing HID, service endpoint cancellation, recorder, IPC and documentation
   coverage tests pass alongside the new parameter/sequence checks. This is not
   an old-client/new-server binary compatibility acceptance.
-- A new physical-device check was attempted but USB discovery returned no devices;
-  screenshot rejection/recording initial-direction hardware checks were skipped,
-  not counted as passed. Earlier actual device checks below remain scoped to
-  their tested revision. Partial text on cancellation is not rolled back; callers
-  may need an explicit keyboard release using a valid connection.
+- A USB check against backend commit `232c400` passed after the phone was
+  reconnected: `screenshot` with `format: "jpeg"` returned `invalid_params`.
+  Video-only MP4 recording with `orientation_from_device: true` and a conflicting
+  numeric orientation of 270 used the reported initial `rot0` direction; independent
+  FFprobe inspection confirmed zero rotation. Decoded frames were 1136×2464.
+  This verifies the portrait override on this device, not every initial direction.
+  Earlier device checks below remain scoped to their tested revision. Partial
+  text on cancellation is not rolled back; callers may need an explicit keyboard
+  release using a valid connection.
 
 ## 2026-10-24: current XDB path and upgrade checks
 
