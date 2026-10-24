@@ -69,6 +69,9 @@ See [Android integration](docs/ANDROID.md) for the NDK and embedded-server model
 The C ABI is in [xdb.h](include/xdb/xdb.h); the wire protocol is documented in
 [PROTOCOL.md](docs/PROTOCOL.md).
 
+The 1.0 preparation reference is [RPC API](docs/API.md) and [C SDK](docs/C_API.md),
+including defaults, errors, states, lifetimes and examples. The baseline is not yet frozen.
+
 ## Command-line use
 
 Desktop CLI and SDK clients automatically start a background server when needed.
@@ -126,21 +129,12 @@ paired Wi-Fi unless a transport is explicitly selected.
 USB requires a working system usbmux/Apple device service and device trust.
 Android initially supports Wi-Fi; Android USB Host integration is not implemented.
 
-The CLI has an explicit migration command for existing credentials:
-
-```sh
-xdb pairing import /path/to/remote-device.pair
-```
-
-The file is copied into the server's data directory; consumers do not subsequently
-need the original file or any pairing keys. No credentials are imported automatically.
-
 For protocol development, `xdb rpc METHOD JSON_PARAMS` and `xdb rpc-shell` expose
 raw requests. `rpc-shell` maintains a client session; it is not an iOS command shell.
 
 ## Initial scope and limitations
 
-- Discovery, USB/Wi-Fi pairing, explicit pairing import and DDI download/preparation.
+- Discovery, USB/Wi-Fi pairing and DDI download/preparation.
 - One device session per client connection; a known UDID has one owning connection.
 - PNG screenshots; decoded latest-frame BGRA video with display geometry metadata.
 - Single-contact panel-normalized touch, keyboard usages, ASCII text, consumer keys and app control.

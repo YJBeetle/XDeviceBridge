@@ -75,6 +75,10 @@ cmake --build build-client
 NDK 和内嵌服务端的接入方式见 [Android 集成说明](docs/ANDROID.md)。
 C ABI 定义位于 [xdb.h](include/xdb/xdb.h)，通信协议见 [PROTOCOL.md](docs/PROTOCOL.md)。
 
+面向 1.0 的完整参考见 [RPC API](docs/API.md) 与 [C SDK](docs/C_API.md)，
+包括字段、默认值、错误码、状态前提、内存所有权、并发取消规则和示例。
+这是待评审的接口基线，尚未宣称 1.0 已发布或接口已冻结。
+
 ## 命令行使用
 
 桌面端 CLI 和 SDK 会在需要时自动启动后台 Server。客户端退出后，Server 继续运行，
@@ -124,15 +128,6 @@ USB 枚举成功也不代表已获得信任。无法识别身份的设备显示�
 未限定传输方式时，设备会话优先尝试 USB，再回退到已配对的 Wi-Fi。
 USB 需要系统 usbmux/Apple 移动设备服务正常运行，并在手机上授予信任。
 Android 初期支持 Wi-Fi，尚未实现 Android USB Host 接入。
-
-CLI 提供显式导入已有配对凭据的命令：
-
-```sh
-xdb pairing import /path/to/remote-device.pair
-```
-
-文件会复制到 Server 的数据目录中，之后调用方不再需要原文件或配对密钥。
-不会自动导入任何凭据。
 
 协议开发可使用 `xdb rpc METHOD JSON_PARAMS` 和 `xdb rpc-shell` 发送原始请求。
 `rpc-shell` 会保持客户端会话，但它不是 iOS 系统命令行。

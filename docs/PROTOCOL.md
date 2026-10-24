@@ -11,6 +11,9 @@ The package version (currently 0.1.0), C ABI and wire protocol are separate cont
 The protocol number in the frame header and `hello.params.protocol` must both be 1.
 A package version mismatch alone is not a reason to kill or replace a server.
 
+The compatibility commitments apply to published releases; unreleased development
+snapshots may be revised before the public baseline is frozen.
+
 Within protocol 1:
 
 - New optional request fields must preserve the old behavior when omitted.
@@ -80,13 +83,16 @@ before destroying that client. Event callbacks cannot reenter or destroy their c
 
 ## Methods
 
+Complete field/default/result/error/state references are in [API.md](API.md);
+C symbol ownership/threading/reference is in [C_API.md](C_API.md). The table below
+is a quick summary rather than the full method contract.
+
 | Method | Parameters | Result / binary |
 | --- | --- | --- |
 | `server.info` | none | Protocol, server version and process ID |
 | `server.stop` | none | Requests shutdown after replying; all sessions are cancelled |
 | `devices` | `transport`: auto/usb/wifi; `timeout_ms`: 0..60000 | Devices, candidates, warnings |
 | `pair` | `transport`: wifi/usb; optional `udid`; `timeout_ms`: 1..300000 | UDID and reused status; progress/PIN events |
-| `pairing.import` | `record`: bounded xdb or scrctl pairing text | Validated/imported UDID; keys remain in server |
 | `ddi.download` | `os_version`, optional `product_type`, `cache_directory`, `timeout_seconds` | Build/cache metadata; progress events |
 | `ddi.prepare` | `udid`, optional `wifi`, `port`, `cache_directory`, `replace`, download/install timeout seconds | Prepared status; progress events |
 | `connection.open` | `udid`, optional `wifi`: auto/address, `port`: device port | Acquires a connection-owned session |
@@ -105,8 +111,8 @@ before destroying that client. Event callbacks cannot reenter or destroy their c
 | `app.launch` | `bundle_id`, optional `terminate_existing` | Request status |
 | `app.stop` | `bundle_id` | Request status |
 
-Except management methods, operations require a device session. A disconnected
-client cannot attach to an old session. For now, use one long-lived library client
+Except management methods, operations require a device session. A disconnected socket cannot resume itself; a new socket can attach only while
+another attachment keeps the session alive. Use one long-lived library client
 or `rpc-shell` for a multi-operation session.
 
 ## Geometry and media ownership
