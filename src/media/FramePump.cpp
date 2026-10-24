@@ -1,3 +1,4 @@
+#include "util/OutputFile.h"
 #include "util/Bytes.h"
 #include "media/FramePump.h"
 
@@ -127,13 +128,8 @@ std::unique_ptr<FramePump> FramePump::start(remote::Device &device, const Option
         return nullptr;
     }
     if (!options.record_path.empty()) {
-        pump->record_ = std::fopen(options.record_path.c_str(), "wb");
-        if (pump->record_ == nullptr) {
-            const int error = errno;
-            err = "Cannot open recording file " + options.record_path + ": " +
-                  std::strerror(error != 0 ? error : EIO);
-            return nullptr;
-        }
+        pump->record_ = util::create_output_file(options.record_path, err);
+        if (pump->record_ == nullptr) return nullptr;
     }
     // 首次关键帧尚未到达时不立即判定停顿；last_packet_ms_ 由 restart() 设置。
     pump->last_decoded_keyframe_ms_ = now_ms();

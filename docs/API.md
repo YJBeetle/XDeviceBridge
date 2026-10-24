@@ -494,3 +494,5 @@ audio.read from another; schedule both outside sound callbacks. A container flow
   are distinct; no device feature is promised merely by a successful hello.
 - Finish review of C symbol stability, media/session lifetime and concrete
   platform/device acceptance; evidence remains separately scoped in VALIDATION.md.
+
+Recording outputs (`recording.configure.path` and `video.start.record_path`) must be new absolute local files. Existing files and symlinks are refused atomically; remove or rename an old recording explicitly before reusing its path. Failed recordings may leave a partial new file.

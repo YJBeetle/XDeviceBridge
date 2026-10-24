@@ -164,6 +164,7 @@ endif()
 # ------------------------------------------------------------- core lib -----
 add_library(xdb_core STATIC
         src/util/Hex.cpp
+        src/util/OutputFile.cpp
         src/ddi/File.cpp
         src/ddi/Download.cpp
         src/ddi/Selection.cpp
@@ -342,7 +343,7 @@ if(XDB_BUILD_TESTS AND XDB_BUILD_SERVER AND XDB_BUILD_CLI)
             set_tests_properties(xdb_install PROPERTIES TIMEOUT 30)
         endif()
     endif()
-    foreach(name ddi_selection json plist hid host_metadata discovery_status text_cancellation api_parameters)
+    foreach(name ddi_selection json plist hid host_metadata discovery_status text_cancellation api_parameters output_file)
         add_executable(xdb_${name}_test tests/${name}_test.cpp)
         target_link_libraries(xdb_${name}_test PRIVATE xdb_core)
         add_test(NAME xdb_${name} COMMAND xdb_${name}_test)

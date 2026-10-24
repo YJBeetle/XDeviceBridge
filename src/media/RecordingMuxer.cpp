@@ -1,3 +1,5 @@
+#include "util/OutputFile.h"
+#include <cerrno>
 #include "media/RecordingMuxer.h"
 
 #include "media/RecordingVideoConfig.h"
@@ -126,6 +128,29 @@ struct RecordingMuxer::Impl {
 
 #ifdef XDB_HAVE_LIBAVFORMAT
     AVFormatContext* context = nullptr;
+    std::FILE* output = nullptr;
+    static int write_output(void* opaque, const uint8_t* data, int size) {
+        auto* self = static_cast<Impl*>(opaque);
+        if (std::fwrite(data, 1, size, self->output) != static_cast<size_t>(size))
+            return AVERROR(errno ? errno : EIO);
+        return size;
+    }
+    static int write_output(void* opaque, uint8_t* data, int size) {
+        return write_output(opaque, static_cast<const uint8_t*>(data), size);
+    }
+    static int64_t seek_output(void* opaque, int64_t offset, int whence) {
+        auto* self = static_cast<Impl*>(opaque);
+        if (whence & AVSEEK_SIZE) {
+            const auto current = util::seek_output_file(self->output, 0, SEEK_CUR);
+            if (current < 0) return AVERROR(errno ? errno : EIO);
+            const auto size = util::seek_output_file(self->output, 0, SEEK_END);
+            if (util::seek_output_file(self->output, current, SEEK_SET) < 0)
+                return AVERROR(errno ? errno : EIO);
+            return size < 0 ? AVERROR(errno ? errno : EIO) : size;
+        }
+        const auto position = util::seek_output_file(self->output, offset, whence & ~AVSEEK_FORCE);
+        return position < 0 ? AVERROR(errno ? errno : EIO) : position;
+    }
     AVPacket* packet = nullptr;
     AVStream* video = nullptr;
     AVStream* audio = nullptr;
@@ -234,8 +259,12 @@ struct RecordingMuxer::Impl {
             if (context != nullptr && context->pb != nullptr) {
                 avio_flush(context->pb);
                 check_io("Cannot flush the recording file");
-                const int closed_io = avio_closep(&context->pb);
-                if (closed_io < 0) remember("Cannot close the recording file: " + libav_error(closed_io));
+                av_freep(&context->pb->buffer);
+                avio_context_free(&context->pb);
+            }
+            if (output != nullptr) {
+                if (std::fclose(output) != 0) remember("Cannot close the recording file");
+                output = nullptr;
             }
             av_packet_free(&packet);
             avformat_free_context(context);
@@ -406,19 +435,26 @@ std::unique_ptr<RecordingMuxer> RecordingMuxer::open(const Options& options, std
         impl.fail("Cannot allocate the recording packet", error);
         return nullptr;
     }
-    AVDictionary* io_options = nullptr;
-    const int limited = av_dict_set(&io_options, "protocol_whitelist", "file", 0);
-    if (limited < 0) {
-        av_dict_free(&io_options);
-        impl.fail("Cannot restrict recording output to local files: " + libav_error(limited), error);
+    impl.output = util::create_output_file(options.path, error);
+    if (impl.output == nullptr) {
+        impl.fail("Cannot open the recording file: " + error, error);
         return nullptr;
     }
-    const int opened = avio_open2(&impl.context->pb, options.path.c_str(), AVIO_FLAG_WRITE, nullptr, &io_options);
-    av_dict_free(&io_options);
-    if (opened < 0) {
-        impl.fail("Cannot open the recording file: " + libav_error(opened), error);
+    // libav owns one buffer; FILE remains unbuffered so I/O errors reach pb->error.
+    std::setvbuf(impl.output, nullptr, _IONBF, 0);
+    auto* buffer = static_cast<unsigned char*>(av_malloc(32768));
+    if (buffer == nullptr) {
+        impl.fail("Cannot allocate recording I/O buffer", error);
         return nullptr;
     }
+    impl.context->pb = avio_alloc_context(buffer, 32768, 1, &impl, nullptr,
+                                          &Impl::write_output, &Impl::seek_output);
+    if (impl.context->pb == nullptr) {
+        av_free(buffer);
+        impl.fail("Cannot allocate recording I/O context", error);
+        return nullptr;
+    }
+    impl.context->flags |= AVFMT_FLAG_CUSTOM_IO;
     // 普通 MP4 保留完整 AAC roll sample groups；不通过分片或关闭 edit list
     // 绕过尾帧/priming 约束。未知视频时长在 write 前明确拒绝，由调用方处理。
     const int header = avformat_write_header(impl.context, nullptr);

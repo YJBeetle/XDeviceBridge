@@ -77,6 +77,22 @@ Recorder::Options audio_options(const std::filesystem::path& path,
     result.include_video = false;
     return result;
 }
+void output_file_protection(const Directory& directory) {
+    using Muxer = xdb::media::RecordingMuxer;
+    if (!Muxer::available()) return;
+    for (const auto format : {Muxer::Format::Mp4, Muxer::Format::Matroska}) {
+        const auto path = directory.path / (format == Muxer::Format::Mp4 ? "keep.mp4" : "keep.mkv");
+        { std::ofstream stream(path); stream << "keep"; }
+        Muxer::Options config;
+        config.path = path.string(); config.format = format;
+        config.include_video = false; config.audio = Muxer::Audio{};
+        std::string error;
+        check(!Muxer::open(config,error) && error.find("not overwritten") != std::string::npos,
+              "MP4/MKV refuses an existing output without truncation");
+        std::ifstream stream(path); std::string text; stream >> text;
+        check(text == "keep", "existing container output bytes are preserved");
+    }
+}
 void selected_tracks_precheck(const Directory& directory) {
     const auto path = directory.path / "selected-tracks-must-not-truncate";
     { std::ofstream file(path); file << "keep"; }
@@ -860,6 +876,7 @@ int main() {
     Directory directory;
     std::string error;
     selected_tracks_precheck(directory);
+    output_file_protection(directory);
     for (const int degrees : {-90, 45, 360}) {
         auto config = options(directory.path / "invalid-orientation.mp4", false,
                               xdb::media::RecordingMuxer::Format::Mp4);
