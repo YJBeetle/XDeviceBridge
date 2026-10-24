@@ -5,7 +5,7 @@
 // 期望值的来源分两级，逐条标出来：
 //   [RFC]   = 规范里的测试向量；
 //   [对拍]  = 由参考实现（python cryptography，Rust + OpenSSL 后端）生成，不是手推的。
-// 最终说了算的判据还是真机那一趟（`tools/wifi_probe`）；这里只保证不把明显错的东西
+// 最终说了算的判据还是真机那一趟（设备配对验收）；这里只保证不把明显错的东西
 // 发到设备上。
 #include <array>
 #include <cstdint>

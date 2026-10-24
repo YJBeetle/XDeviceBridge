@@ -35,7 +35,7 @@ std::string proxy_failure_hint(const std::string_view lockdown_error) {
         return " (computer not trusted; unlock the device and confirm Trust)";
     }
     if (e.find("InvalidService") != std::string::npos) {
-        return " (service unavailable; check Developer Mode and a compatible DDI; download: xdb --download-ddi, installation: docs/DDI.md)";
+        return " (service unavailable; check Developer Mode and a compatible DDI; prepare it with xdb ddi prepare)";
     }
     return " (check DDI mounting and Developer Mode)";
 }

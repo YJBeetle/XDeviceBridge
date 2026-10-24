@@ -106,7 +106,7 @@ std::unique_ptr<AudioPump> AudioPump::start(remote::Device &device, const Option
     // 起流前计算并提示被限制的配置，与构造函数采用相同纯函数。
     const Waterline w = compute_waterline(options);
     if (w.clamped_to_ms != 0) {
-        std::printf("Clamped --audio-buffer %d to %d ms and adjusted buffer capacity\n",
+        std::printf("Clamped audio buffer %d to %d ms and adjusted buffer capacity\n",
                     options.target_backlog_ms, w.clamped_to_ms);
     }
     auto pump = std::unique_ptr<AudioPump>(new AudioPump(device, options));
@@ -145,8 +145,8 @@ bool AudioPump::validate_stream_mode(const StreamSession::Started &started,
     const uint64_t expected = options.audio_dup ? 8 : 10;
     if (value != expected) {
         err = options.audio_dup
-            ? "Phone-and-computer audio routing was not accepted (--audio-dup requires AudioStreamMode 8)"
-            : "Computer-only audio routing was not accepted (requires AudioStreamMode 10); not falling back to --audio-dup";
+            ? "Phone-and-computer audio routing was not accepted (duplicate=true requires AudioStreamMode 8)"
+            : "Computer-only audio routing was not accepted (requires AudioStreamMode 10); not falling back to duplicate=true";
         return false;
     }
     err.clear();

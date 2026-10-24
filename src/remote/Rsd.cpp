@@ -547,11 +547,11 @@ std::unique_ptr<ServiceConnection> Rsd::connect_service(std::string_view name, s
 std::string Rsd::missing_service_message(const std::string_view name,
                                          const std::vector<ServiceInfo> &seen) {
     // 报告目录总数，仅逐行列出 CoreDevice 服务名，其它服务不展开。
-    // 目录能力只是诊断信息，不能单独证明 DDI 挂载状态；全量目录由 feature_probe 输出。
+    // 目录能力只是诊断信息，不能单独证明 DDI 挂载状态。
     std::string out = "Device directory missing service " + std::string(name) + ".";
     if (seen.empty()) {
         out += "Directory is empty; check tunnel setup and DDI mounting.";
-        out += "\nDownload a supported DDI with xdb --download-ddi; installation and compatibility guidance: docs/DDI.md.\n";
+        out += "\nPrepare a supported DDI with xdb ddi prepare.\n";
         return out;
     }
     std::vector<std::string> cd;
@@ -564,17 +564,14 @@ std::string Rsd::missing_service_message(const std::string_view name,
            std::to_string(cd.size()) + " com.apple.coredevice.* services:\n";
     if (cd.empty()) {
         out +=
-            "  (none found; check DDI mounting through Xcode and the CoreDevice services "
+            "  (none found; check DDI preparation with xdb ddi prepare and the CoreDevice services "
             "available on this device)\n";
     }
     for (const auto &n : cd) {
         out += "  · " + n + "\n";
     }
-    out += "A mounted DDI may still lack this service. Check its version and capabilities; download a supported DDI with xdb --download-ddi. Installation guidance: docs/DDI.md.\n";
-    out +=
-        "Include this diagnostic when reporting the issue. For the full directory and "
-        "feature lists, run feature_probe --all to print all " +
-           std::to_string(seen.size()) + " services.\n";
+    out += "A mounted DDI may still lack this service. Check its version and capabilities; prepare a supported DDI with xdb ddi prepare.\n";
+    out += "Include this service diagnostic when reporting the issue.\n";
     return out;
 }
 

@@ -367,7 +367,7 @@ void check_audio_routing(bool decode_pcm) {
         check(AudioPump::validate_stream_mode(answer_with_mode(mode), options, err) && err.empty(),
               "显式双端播放接受旧 mode 6 对应的 AudioStreamMode 8");
         check(!AudioPump::validate_stream_mode(answer_with_mode(make_int64(10)), options, err) &&
-                  err.find("--audio-dup") != std::string::npos && options.audio_dup,
+                  err.find("duplicate=true") != std::string::npos && options.audio_dup,
               "双端播放也必须获得所请求的路由，不静默压掉手机播放");
         options.audio_dup = false;
     }
@@ -598,7 +598,7 @@ int main() {
     }
 
     // 音频水位与环容量。这一段是纯算术，不需要设备——而它要防的正是"没设备就测不到"
-    // 的那类错：容量写死 500ms、水位随便填，于是 `--audio-buffer 600` 的症状是整条腿
+    // 的那类错：容量写死 500ms、水位随便填，于是 600 ms 缓冲 的症状是整条腿
     // 静音（出口那道 `buffered < preroll` 的闸门永远开着），不是"延迟大一点"。
     std::printf("\n== 音频水位与环容量 ==\n");
     {

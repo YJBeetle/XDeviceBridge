@@ -436,7 +436,7 @@ std::optional<fs::path> default_cache_root(std::string &error) {
     auto root = environment_path("HOME");
     if (root.is_absolute()) return root / ".cache" / "xdb" / "ddi";
 #endif
-    error = "No absolute platform cache directory is available; specify --ddi-directory";
+    error = "No absolute platform cache directory is available; specify cache_directory (CLI: --cache-dir)";
     return std::nullopt;
 }
 

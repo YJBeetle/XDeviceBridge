@@ -113,7 +113,7 @@ bool plane_allows_pair_setup(const json::Value &handshake, std::string &err) {
         err =
             "Control channel does not allow pair-setup "
             "(deviceOptions.allowsPairSetup=false). Tested iOS 27 devices require the "
-            "RemoteXPC entry point (wifi_probe --pair-setup-xpc)";
+            "RemoteXPC pair-setup entry point";
         return false;
     }
     return true;
