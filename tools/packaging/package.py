@@ -44,9 +44,9 @@ def dependencies(stage, build, prefix):
         visited = set()
         while queue:
             binary = queue.pop()
-            if binary in visited:
+            if binary.resolve() in visited:
                 continue
-            visited.add(binary)
+            visited.add(binary.resolve())
             lines = run('otool', '-L', binary).splitlines()
             for line in lines[2 if binary.suffix == '.dylib' else 1:]:
                 old = line.strip().split(' (', 1)[0]
@@ -84,7 +84,7 @@ def dependencies(stage, build, prefix):
                 raise RuntimeError(f'Conflicting runtime library: {source.name}')
             shutil.copy2(real, target)
             origins[target.name] = str(real)
-    binaries = [executable] + [p for p in destination.iterdir() if p.is_file() and (p.suffix == '.dylib' or '.so' in p.name)]
+    binaries = [executable] + [p for p in destination.iterdir() if p.is_file() and not p.is_symlink() and (p.suffix == '.dylib' or '.so' in p.name)]
     if platform.system() == 'Darwin':
         for binary in binaries:
             for line in run('otool', '-L', binary).splitlines()[2 if binary.suffix == '.dylib' else 1:]:
@@ -97,7 +97,9 @@ def dependencies(stage, build, prefix):
                 relative = '@loader_path/../lib/' if binary == executable else '@loader_path/'
                 run('install_name_tool', '-change', old, relative + name, binary)
             if binary != executable:
-                run('install_name_tool', '-id', '@rpath/' + binary.name, binary)
+                # Keep the ABI install name (e.g. libxdb_client.0.dylib), not the full version filename.
+                install_name = Path(run('otool', '-D', binary).splitlines()[1].strip()).name
+                run('install_name_tool', '-id', '@rpath/' + install_name, binary)
             # Remove build-machine search paths, retaining only loader-relative paths.
             load_commands = run('otool', '-l', binary)
             for rpath in re.findall(r'cmd LC_RPATH\n.*?\n\s*path (.*?) \(offset', load_commands):
