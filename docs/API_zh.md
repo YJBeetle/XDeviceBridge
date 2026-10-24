@@ -238,6 +238,9 @@ watcher 几何变化会改变 serial；它与视频帧 serial 独立。
 
 ### `clipboard.get`
 
+返回文本与 `clipboard.set` 一样限制为 262144 字节。设备文本超限时，在复制到
+RPC 结果之前返回 `operation_failed`。
+
 需要会话，无参数。返回 `{text:string}`，包含剪贴板内容。
 应将响应视为用户敏感数据；手机策略可能拒绝访问剪贴板。
 

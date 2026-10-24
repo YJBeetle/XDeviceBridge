@@ -259,6 +259,9 @@ Do not use this to simulate ordinary keyboard input silently.
 
 ### `clipboard.get`
 
+Returned text is limited to 262144 bytes, matching `clipboard.set`. Oversized
+device text returns `operation_failed` before copying it into the RPC result.
+
 Session required. No params. Result `{text:string}`; contains clipboard contents.
 Treat this response as user-sensitive. Phone policy may reject clipboard access.
 

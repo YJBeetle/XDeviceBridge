@@ -74,6 +74,14 @@ int main() {
         xdb::xpc::dict_set(result, "pasteboard", Pasteboard::build_set(text));
         return result;
     };
+    std::string limit_error = "previous error";
+    const std::string boundary(xdb::remote::kMaxClipboardTextBytes, 'x');
+    const auto bounded = Pasteboard::find_text(text_reply(boundary), &limit_error);
+    check(bounded && *bounded == boundary && limit_error.empty(), "exact 256 KiB clipboard boundary is accepted");
+    check(!Pasteboard::find_text(text_reply(boundary + "x"), &limit_error) &&
+              limit_error == "Clipboard exceeds 256 KiB", "oversized reply is rejected before copying text");
+    check(!Pasteboard::find_text(pull, &limit_error) && limit_error.empty(),
+          "missing representation remains distinguishable from oversized text");
     const auto first = Pasteboard::find_text(text_reply("第一段文本"));
     check(first && *first == "第一段文本", "提取 UTF-8 文本");
     const auto second = Pasteboard::find_text(text_reply("第二段文本"));

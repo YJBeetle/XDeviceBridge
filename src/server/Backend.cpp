@@ -224,7 +224,7 @@ Reply Backend::handle(const std::string &method, const Json &p, const Event &eve
         Reply r;
         if (method == "clipboard.set") {
             auto text = p.at("text").get<std::string>();
-            if (text.size() > 262144)
+            if (text.size() > remote::kMaxClipboardTextBytes)
                 return Reply::failure("invalid_params", "Clipboard exceeds 256 KiB");
             if (!remote::Pasteboard::set_text(s.device, text, error))
                 return fail(error);

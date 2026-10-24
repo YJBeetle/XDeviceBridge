@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <optional>
 #include <stop_token>
 #include <string>
@@ -9,6 +10,7 @@
 namespace xdb::remote {
 
 class Device;
+inline constexpr std::size_t kMaxClipboardTextBytes = 256u * 1024u;
 
 /// 设备剪贴板。
 ///
@@ -51,8 +53,9 @@ public:
     /// 构造 PULL 的消息体。
     [[nodiscard]] static xpc::Value build_pull();
     /// 从 PULL_REPLY 里复制纯文本，包含空 Data；没有该表示形式时返回 nullopt。
+    /// 超过 256 KiB 时在复制前拒绝；error 非空时报告原因，缺少表示形式则保留空错误。
     /// 返回值独立持有字节，不借用回信或共享缓存，可在下一次提取后继续使用。
-    [[nodiscard]] static std::optional<std::string> find_text(const xpc::Value &reply);
+    [[nodiscard]] static std::optional<std::string> find_text(const xpc::Value &reply, std::string *error = nullptr);
 };
 
 }  // namespace xdb::remote

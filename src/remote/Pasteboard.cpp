@@ -66,7 +66,8 @@ xpc::Value Pasteboard::build_set(const std::string &text) {
     return msg;
 }
 
-std::optional<std::string> Pasteboard::find_text(const xpc::Value &reply) {
+std::optional<std::string> Pasteboard::find_text(const xpc::Value &reply, std::string *error) {
+    if (error) error->clear();
     const auto *snapshot = reply.find("pasteboard");
     if (snapshot == nullptr) {
         return std::nullopt;
@@ -88,6 +89,10 @@ std::optional<std::string> Pasteboard::find_text(const xpc::Value &reply) {
         if (bytes == nullptr || bytes->type != xpc::Type::Data) {
             continue;
         }
+        if (bytes->data.size() > kMaxClipboardTextBytes) {
+            if (error) *error = "Clipboard exceeds 256 KiB";
+            return std::nullopt;
+        }
         return std::string(bytes->data.begin(), bytes->data.end());
     }
     return std::nullopt;
@@ -96,6 +101,7 @@ std::optional<std::string> Pasteboard::find_text(const xpc::Value &reply) {
 bool Pasteboard::set_text(Device &device, const std::string &text, std::string &err,
                           bool verbose, std::stop_token cancel, int reply_timeout_ms) {
     if (!valid_request(cancel, reply_timeout_ms, err)) return false;
+    if (text.size() > kMaxClipboardTextBytes) { err = "Clipboard exceeds 256 KiB"; return false; }
     auto conn = device.connect(kServiceName, err, verbose, cancel);
     if (cancelled(cancel, err)) return false;
     if (conn == nullptr) {
@@ -135,11 +141,11 @@ bool Pasteboard::get_text(Device &device, std::string &out, std::string &err, bo
         err = "PULL response is not PULL_REPLY: " + xpc::describe(reply).substr(0, 300);
         return false;
     }
-    const auto text = find_text(reply);
+    const auto text = find_text(reply, &err);
     if (!text) {
         // 缺少 UTF-8 Data 表示时保留有限长度的回复描述，帮助区分只有其他类型内容
         // 和设备返回错误；存在但零长度的 Data 已由 find_text 作为空文本接受。
-        err = "Response has no plain-text representation: " + xpc::describe(reply).substr(0, 400);
+        if (err.empty()) err = "Response has no plain-text representation: " + xpc::describe(reply).substr(0, 400);
         return false;
     }
     if (cancelled(cancel, err)) return false;
