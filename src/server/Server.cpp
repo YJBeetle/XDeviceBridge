@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 #include "Backend.h"
 #include "ipc/Json.h"
+#include "transport/IoBudget.h"
 #include "xdb/xdb.h"
 #include <atomic>
 #include <filesystem>
@@ -16,6 +17,8 @@ struct Worker {
     xdb::transport::Socket socket;
     std::jthread thread;
     std::atomic<bool> done{false};
+    enum State { Busy, Idle, Evicted };
+    std::atomic<State> state{Busy};
     void interrupt() {
 #ifdef _WIN32
         // Stop discards in-flight calls; avoid lingering connections blocking a new listener.
@@ -44,14 +47,18 @@ void xdb_server::run_client(Worker &worker) noexcept {
     using Json = nlohmann::json;
     std::string error;
     try {
-        worker.socket.set_read_timeout(5000, error);
         ipc::Message message;
+        uint64_t id = 0;
+        {
+        transport::IoBudget budget({std::chrono::seconds(5), [&] { return stopping.load(); }});
+        transport::SocketBudgetGuard handshake(worker.socket, budget);
+        worker.socket.set_read_timeout(5000, error);
         if (!ipc::read(worker.socket, message, error) || !message.binary.empty()) {
             worker.done = true;
             return;
         }
         auto hello = xdb::ipc::parse_json(message.json);
-        auto id = hello.value("id", uint64_t(0));
+        id = hello.value("id", uint64_t(0));
         auto params = hello.value("params", Json::object());
         if (hello.value("method", std::string()) != "hello" || params.value("protocol", 0) != 1) {
             ipc::write(worker.socket,
@@ -74,11 +81,29 @@ void xdb_server::run_client(Worker &worker) noexcept {
             worker.done = true;
             return;
         }
-        worker.socket.set_read_timeout(0, error);
+        if (!handshake.finish(error)) {
+            worker.done = true;
+            return;
+        }
+        }
+        // Idle waits happen below. Once a frame starts, stalled chunks time out.
+        worker.socket.set_read_timeout(5000, error);
         server::Backend backend(registry, directory);
         while (!stopping) {
-            if (!ipc::read(worker.socket, message, error))
-                break;
+            const bool owns_session = backend.has_session();
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+            if (!owns_session) worker.state = Worker::Idle;
+            bool readable = false;
+            while (!stopping && worker.state != Worker::Evicted) {
+                const int ready = transport::wait_socket(worker.socket.fd(), false, 100);
+                if (ready != 0) { readable = ready > 0; break; }
+                if (!owns_session && std::chrono::steady_clock::now() >= deadline) break;
+            }
+            if (!readable || !ipc::read(worker.socket, message, error)) break;
+            if (!owns_session) {
+                auto expected = Worker::Idle;
+                if (!worker.state.compare_exchange_strong(expected, Worker::Busy)) break;
+            }
             Json request = xdb::ipc::parse_json(message.json);
             if (!request.is_object() || !request.contains("id") || !request["id"].is_number_unsigned() ||
                 !request.contains("method") || !request["method"].is_string() ||
@@ -166,8 +191,18 @@ void xdb_server::accept_loop() {
         transport::Socket socket(::accept(listener.fd(), nullptr, nullptr));
         if (!socket.valid())
             continue;
-        if (workers.size() >= 16)
-            continue;
+        if (workers.size() >= 16) {
+            // Reclaim only sessionless idle clients. CAS prevents racing a new RPC.
+            for (auto it = workers.begin(); it != workers.end(); ++it) {
+                auto expected = Worker::Idle;
+                if (!(*it)->state.compare_exchange_strong(expected, Worker::Evicted)) continue;
+                (*it)->interrupt();
+                (*it)->thread.join();
+                workers.erase(it);
+                break;
+            }
+            if (workers.size() >= 16) continue;
+        }
         auto worker = std::make_unique<Worker>();
         worker->socket = std::move(socket);
         auto *raw = worker.get();

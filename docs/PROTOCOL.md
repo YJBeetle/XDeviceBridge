@@ -194,3 +194,13 @@ transport/media `error`, so decoded mirroring may continue. `media.finish` still
 returns the recording failure. The server holds the requested audio startup
 preroll; clients should keep only a small output queue instead of buffering that
 duration again.
+
+## Idle connection limits
+
+A hello must complete within five seconds. After hello, a connection without a
+device session or in-flight operation expires after 60 idle seconds; when the
+16-worker pool is full, such idle clients can be reclaimed immediately. A partial
+request does not reserve a slot. Connections owning/attached to a device session
+and requests already executing are not evicted by this policy. Stalled frame
+chunks have a five-second receive timeout. Clients whose idle socket was closed
+must reconnect before another request.

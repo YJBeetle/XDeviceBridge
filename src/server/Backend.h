@@ -53,6 +53,7 @@ class Backend {
   public:
     Backend(Registry &, std::string data_directory);
     ~Backend();
+    bool has_session() const { return bool(session_); }
     Reply handle(const std::string &method, const Json &params, const Event &, const Cancel &);
 
   private:

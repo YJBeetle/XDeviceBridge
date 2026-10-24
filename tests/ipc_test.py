@@ -128,6 +128,27 @@ with tempfile.TemporaryDirectory(prefix='xdb-ipc-') as tmp:
         assert json.loads(result.stdout)['ok']
         result=subprocess.run([str(exe.resolve()),'--port',str(port),'devices','--wifi','--timeout','0'],text=True,capture_output=True,timeout=5)
         assert result.returncode==0 and result.stdout.startswith('List of iOS devices attached'), result.stderr
+        # A full pool of sessionless peers (including a partial frame) cannot
+        # prevent a new management request from reaching the daemon.
+        pool = []
+        try:
+            for index in range(16):
+                peer = socket.create_connection(('127.0.0.1',port),timeout=3)
+                hello(peer)
+                pool.append(peer)
+                if index == 0:
+                    peer.sendall(b'X')
+            with socket.create_connection(('127.0.0.1',port),timeout=3) as replacement:
+                hello(replacement)
+                replacement.sendall(packet({'id':2,'method':'server.info','params':{}}))
+                assert receive(replacement)[0]['ok'], 'idle peers exhausted worker capacity'
+            try:
+                assert pool[0].recv(1) == b'', 'partial-frame idle peer was not reclaimed'
+            except ConnectionResetError:
+                pass  # Windows may abort a socket that has unread bytes.
+        finally:
+            for peer in pool:
+                peer.close()
         # Stop must release idle clients blocked in recv, without requiring their cooperation.
         idle=socket.create_connection(('127.0.0.1',port),timeout=2)
         hello(idle)
