@@ -239,6 +239,15 @@ int main() {
                   result.records[0].product_id == 123, "valid reply preserves device record fields");
             std::printf("complete: elapsed_ms=%lld\n", static_cast<long long>(result.elapsed.count()));
         }
+        for (const auto offset : {4, 8, 12}) {
+            auto wrong = reply;
+            put_u32(wrong.data() + offset, get_u32(wrong.data() + offset) + 1);
+            Server server([&](Server &s) { s.send(wrong.data(), wrong.size()); });
+            const auto result = enumerate(server);
+            check(result.status == UsbmuxDiscoveryStatus::unavailable && result.records.empty() &&
+                      result.error.find(offset == 12 ? "tag" : "version or message type") != std::string::npos,
+                  "mismatched usbmux reply header cannot publish device records");
+        }
         const auto silence = [](Server &s) { while (s.pause(10ms)) {} };
         timeout_case("no_reply", silence, false);
         timeout_case("partial_header", [&](Server &s) { s.send(reply.data(), 8); silence(s); }, true);

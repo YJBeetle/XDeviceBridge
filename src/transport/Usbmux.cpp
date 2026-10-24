@@ -24,6 +24,19 @@ constexpr uint32_t kMaxPayload = 16u << 20;
 constexpr uint16_t kLockdownPort = 62078;
 constexpr const char *kClientName = "xdb";
 
+bool matching_reply(const uint8_t *header, uint32_t request_tag, std::string &err) {
+    if (util::read_le32(header + 4) != kProtoVersion || util::read_le32(header + 8) != kMsgPlist) {
+        err = "Unexpected mux response version or message type";
+        return false;
+    }
+    if (util::read_le32(header + 12) != request_tag) {
+        err = "Mux response tag does not match the request";
+        return false;
+    }
+    return true;
+}
+
+
 
 
 
@@ -202,6 +215,7 @@ UsbmuxDiscoveryStatus detail::list_usbmux_devices_at(
         err = "Invalid mux frame length: " + std::to_string(total);
         return UsbmuxDiscoveryStatus::unavailable;
     }
+    if (!matching_reply(header, 1, err)) return UsbmuxDiscoveryStatus::unavailable;
     std::vector<uint8_t> payload(total - kHeaderLen);
     if (!budget.transfer(fd, payload.data(), payload.size(), false, err)) return budget.status;
     while (!payload.empty() && payload.back() == 0) payload.pop_back();
@@ -342,7 +356,8 @@ bool Usbmux::round_trip_for_service(const plist::Value &req, plist::Value &reply
     auto body = plist::write(req); body += '\0';
     uint8_t header[kHeaderLen];
     util::write_le32(header, static_cast<uint32_t>(kHeaderLen + body.size()));
-    util::write_le32(header + 4, kProtoVersion); util::write_le32(header + 8, kMsgPlist); util::write_le32(header + 12, tag_++);
+    const uint32_t request_tag = tag_++;
+    util::write_le32(header + 4, kProtoVersion); util::write_le32(header + 8, kMsgPlist); util::write_le32(header + 12, request_tag);
     if (!budget.transfer(fd, header, sizeof(header), true, err) ||
         !budget.transfer(fd, body.data(), body.size(), true, err) ||
         !budget.transfer(fd, header, sizeof(header), false, err)) return fail();
@@ -350,6 +365,7 @@ bool Usbmux::round_trip_for_service(const plist::Value &req, plist::Value &reply
     if (total < kHeaderLen || total - kHeaderLen > kMaxPayload) {
         err = "Invalid mux frame length: " + std::to_string(total); return fail();
     }
+    if (!matching_reply(header, request_tag, err)) return fail();
     std::vector<uint8_t> payload(total - kHeaderLen);
     if (!budget.transfer(fd, payload.data(), payload.size(), false, err)) return fail();
     while (!payload.empty() && payload.back() == 0) payload.pop_back();
@@ -415,7 +431,8 @@ bool Usbmux::round_trip(const plist::Value &request, plist::Value &reply, std::s
     util::write_le32(hdr, static_cast<uint32_t>(kHeaderLen + body.size()));
     util::write_le32(hdr + 4, kProtoVersion);
     util::write_le32(hdr + 8, kMsgPlist);
-    util::write_le32(hdr + 12, tag_);
+    const uint32_t request_tag = tag_;
+    util::write_le32(hdr + 12, request_tag);
     if (!sock_.write_all(hdr, kHeaderLen, err)) {
         return false;
     }
@@ -434,6 +451,10 @@ bool Usbmux::round_trip(const plist::Value &request, plist::Value &reply, std::s
     // usbmuxd 的回复实际是 KB 级（设备列表、配对记录），16MB 已经宽到没边。
     if (total < kHeaderLen || total - kHeaderLen > kMaxPayload) {
         err = "Invalid mux frame length: " + std::to_string(total);
+        return false;
+    }
+    if (!matching_reply(rhdr, request_tag, err)) {
+        sock_.close(); // Unread mismatched payload cannot be reused as the next response header.
         return false;
     }
     std::vector<uint8_t> payload(total - kHeaderLen);
