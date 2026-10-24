@@ -91,7 +91,7 @@ NokeyAction plan_nokey(const int restarts, const int max_restarts, const bool al
 }
 
 FramePump::FramePump(remote::Device &device, Options options, bool verbose)
-    : device_(device), options_(std::move(options)), verbose_(verbose) {}
+    : device_(device), options_(std::move(options)), media_lease_(options_.session_group), verbose_(verbose) {}
 
 std::unique_ptr<FramePump> FramePump::start(remote::Device &device, const Options &options,
                                             std::string &err, bool verbose) {
@@ -151,7 +151,7 @@ FramePump::~FramePump() {
     // 也避免会话占用影响下一次启动。异常退出仍依赖租期释放。
     if (session_ != nullptr) {
         std::string stop_err;
-        if (!session_->stop(device_, stop_err, verbose_)) {
+        if (!media_lease_.stop_if_exclusive([&] { return session_->stop(device_, stop_err, verbose_); })) {
             std::fprintf(stderr, "Failed to stop device video session (device will release it when the lease expires): %s\n",
                          stop_err.c_str());
         }
@@ -252,7 +252,7 @@ bool FramePump::restart(std::string &err) {
 
     if (session_ != nullptr) {
         std::string stop_err;
-        if (!session_->stop(device_, stop_err, verbose_, stop_source_.get_token())) {
+        if (!media_lease_.stop_if_exclusive([&] { return session_->stop(device_, stop_err, verbose_, stop_source_.get_token()); })) {
             // 停止旧会话失败仍尝试新会话，保留错误供排查设备端残留状态。
             std::fprintf(stderr, "Failed to stop previous video session (still attempting restart): %s\n", stop_err.c_str());
         }

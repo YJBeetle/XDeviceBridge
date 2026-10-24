@@ -363,6 +363,12 @@ media.finish is the explicit finalization/error boundary.
 
 ## Audio and recording
 
+Audio and video share device-stop ownership regardless of startup order. Stopping
+one pump while the other remains active stops only its local reception/RTCP
+renewal. The stopped device stream can remain until its lease expires; no
+`stopAll` is sent during this partial stop or a sibling's video recovery. The
+last pump's cleanup can stop device media globally.
+
 ### `audio.start`
 
 Session required. `decode`: bool default true; `duplicate`: bool default false;

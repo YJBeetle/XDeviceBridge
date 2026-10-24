@@ -337,6 +337,10 @@ BGRA 返回 `{format:"bgra",display:Display,width:integer,height:integer,row_pit
 
 ## 音频与录制
 
+音视频共享设备停流归属，与启动顺序无关。还有另一个泵运行时，停止其中一路只停止
+本地接收和 RTCP 续租；设备上的该路流可能要等租期到期才释放。部分停流或视频恢复
+不会发送 `stopAll`；最后一个泵清理时才允许全局停止设备媒体。
+
 ### `audio.start`
 
 需要会话。`decode` 为布尔值，默认 true；`duplicate` 为布尔值，默认 false；

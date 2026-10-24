@@ -99,6 +99,7 @@ struct Backend::Session {
     std::mutex control_mutex, pcm_mutex;
     bool pcm_started = false;
     remote::Device device;
+    std::shared_ptr<media::SessionGroup> media_group = std::make_shared<media::SessionGroup>();
     std::unique_ptr<remote::DisplayWatcher> display;
     std::unique_ptr<hid::Service> hid;
     std::unique_ptr<hid::Buttons> buttons;
@@ -336,7 +337,8 @@ Reply Backend::handle(const std::string &method, const Json &p, const Event &eve
             o.decode_pcm = p.value("decode", true);
             o.target_backlog_ms = bounded(p, "buffer_ms", 50, 0, 1000);
             o.recorder = s.recorder.get();
-            o.stop_device_on_exit = !s.video;
+            o.stop_device_on_exit = true;
+            o.session_group = s.media_group;
             s.audio = media::AudioPump::start(s.device, o, error);
             s.pcm_started = false;
         }
@@ -382,6 +384,7 @@ Reply Backend::handle(const std::string &method, const Json &p, const Event &eve
             if (!s.display)
                 s.display = remote::DisplayWatcher::start(s.device, 1, error);
             media::FramePump::Options options;
+            options.session_group = s.media_group;
             options.use_hardware = p.value("hardware_decode", false);
             options.decode_video = p.value("decode", true);
             options.recorder = s.recorder.get();

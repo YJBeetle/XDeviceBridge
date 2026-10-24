@@ -1,5 +1,7 @@
 #pragma once
 
+#include "media/SessionGroup.h"
+
 #include <atomic>
 #include <cstdint>
 #include <memory>
@@ -23,6 +25,8 @@ class Recorder;
 class AudioPump {
 public:
     struct Options {
+        /// 与同设备的视频泵共享；只有最后一条流才允许执行 stopAll。
+        std::shared_ptr<SessionGroup> session_group;
         /// 借用拥有者的容器录制器；旁路解码前原包。销毁录制器前须 stop/join。
         Recorder *recorder = nullptr;
         /// false 仅向录制器投递原 AAC，不创建 PCM 解码器、补偿器或播放缓冲。
@@ -31,8 +35,8 @@ public:
         /// false 将手机音频转到电脑（negotiator mode 10）；true 保留手机播放（mode 6）。
         /// 起流和会话重建使用相同策略，不自动切换为双端播放。
         bool audio_dup = false;
-        /// 仅不拥有视频会话的唯一媒体拥有者可启用。stop() 先 join 接收线程，
-        /// 再通过已有有效 StreamSession 调用设备 stopAll；默认只关闭本地音频。
+        /// 启用设备清理。共享 session_group 时仅最后一个泵发送 stopAll；
+        /// 未提供组时，调用方须确保没有其他媒体流。默认只关闭本地音频。
         /// 已接受但首答复无法解析时没有有效 handle，仍只能停止 RR 并等待租期。
         bool stop_device_on_exit = false;
         /// 音频会话的 avcMediaStreamOptionClientSessionID（16 字节 XPC UUID）。
@@ -175,13 +179,13 @@ public:
     void stop_receiving();
 
     /// 复用 stop_receiving() 后清理设备并释放会话。默认不发送会中断视频的 stopAll；
-    /// stop_device_on_exit 的唯一拥有者用当前或最近一次有效会话尽力 stopAll。
+    /// stop_device_on_exit 的拥有者在没有同组其他泵时，用当前或最近有效会话尽力 stopAll。
     /// 重复调用不重复设备请求；需先关闭借用此对象的声卡回调。
     void stop();
 
 private:
     AudioPump(remote::Device &device, Options options)
-        : device_(device), options_(std::move(options)) {
+        : device_(device), options_(std::move(options)), media_lease_(options_.session_group) {
         const Waterline w = compute_waterline(options_);
         target_frames_ = w.target_frames;
         capacity_frames_ = w.capacity_frames;
@@ -207,6 +211,7 @@ private:
 
     remote::Device &device_;
     const Options options_;
+    SessionGroup::Lease media_lease_;
     bool verbose_ = false;
     /// 设备已接受请求但答复无效（含路由不符）时终止音频；与传输失败分开，
     /// 避免每秒重做会打断播放器的路由切换。只在启动线程或后续工作线程内访问。

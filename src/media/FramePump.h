@@ -15,6 +15,7 @@
 
 #include "decode/Decoder.h"
 #include "media/MediaOffer.h"
+#include "media/SessionGroup.h"
 #include "rt/RtpHevc.h"
 
 namespace xdb::media {
@@ -48,6 +49,8 @@ NokeyAction plan_nokey(int restarts, int max_restarts, bool already_unusable);
 class FramePump {
 public:
     struct Options {
+        /// 同一设备并存的媒体泵共享停流归属，防止 stopAll 中断另一条流。
+        std::shared_ptr<SessionGroup> session_group;
         uint32_t display_id = 1;
         std::function<std::optional<FrameGeometry>()> frame_geometry;
         /// 非空时将 Annex-B 码流录制到文件。
@@ -223,6 +226,7 @@ private:
 
     xdb::remote::Device &device_;
     Options options_;
+    SessionGroup::Lease media_lease_;
     bool verbose_ = false;
 
     std::unique_ptr<StreamSession> session_;

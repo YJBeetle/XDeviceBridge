@@ -1,4 +1,5 @@
 #include "media/FramePump.h"
+#include "media/AudioPump.h"
 #include "media/Recorder.h"
 #include "media/RecordingVideoConfig.h"
 #include "media/StreamSession.h"
@@ -215,10 +216,11 @@ void decoded_software_fallback() {
     (void)pump->finish_recording(error);
 }
 std::unique_ptr<Pump> raw_pump(xdb::remote::Device& device, const Directory& directory,
-                              std::string_view name, int stall = 0) {
+                              std::string_view name, int stall = 0, std::shared_ptr<xdb::media::SessionGroup> group = {}) {
     Pump::Options options; options.decode_video = false;
     options.record_path = (directory.path / name).string();
     options.stall_restart_ms = stall; options.silence_restart_ms = 0;
+    options.session_group = std::move(group);
     std::string error; auto pump = Pump::start(device, options, error);
     check(pump != nullptr && error.empty(), "raw encoded recording starts with the real syntax checker");
     return pump;
@@ -480,6 +482,46 @@ void container_capture(const Directory& directory, bool missing_source) {
     check(status == AVERROR_EOF && count == 3, "late/duplicate/foreign packets do not add container samples");
     av_packet_free(&packet); avformat_close_input(&input);
 }
+void shared_media_stop(const Directory& directory) {
+    using Audio = xdb::media::AudioPump;
+    for (bool audio_first : {false, true}) for (bool stop_audio_first : {false, true}) {
+        script.reset(); xdb::remote::Device device;
+        auto group = std::make_shared<xdb::media::SessionGroup>();
+        Recorder::Options record_options; record_options.include_video = false; record_options.include_audio = true;
+        record_options.path = (directory.path / "shared-stop.mkv").string();
+        std::string error;
+        auto recorder = Recorder::start(record_options, error);
+        check(recorder != nullptr, "audio-only capture consumer starts for stop isolation"); if (!recorder) continue;
+        Audio::Options audio_options; audio_options.decode_pcm = false; audio_options.recorder = recorder.get();
+        audio_options.stop_device_on_exit = true; audio_options.session_group = group;
+        std::unique_ptr<Audio> audio;
+        std::unique_ptr<Pump> video;
+        const auto start_audio = [&] { audio = Audio::start(device, audio_options, error); };
+        const auto start_video = [&] {
+            video = raw_pump(device, directory, "shared-stop-" + std::to_string(audio_first) +
+                             std::to_string(stop_audio_first) + ".hevc", (!audio_first && !stop_audio_first) ? 20 : 0, group);
+        };
+        if (audio_first) { start_audio(); start_video(); }
+        else { start_video(); start_audio(); }
+        check(audio && video, "audio and video pumps start in either order");
+        if (!audio || !video) continue;
+        if (!audio_first && !stop_audio_first) {
+            auto sequence = parameters(200);
+            script.enqueue(rtp(sequence++, 0, idr, true));
+            check(video->wait_ready(2000), "shared video receives its first IDR before recovery");
+            ++sequence; script.enqueue(rtp(sequence, 2400, Bytes{0x02,0x01,0x80,0x00}, true));
+            check(wait([] { return script.start_count() >= 3; }), "shared video recreates its session after a real sequence gap");
+            check(script.stops == 0 && audio->terminal_error().empty(),
+                  "video recovery skips stopAll while the audio pump remains active");
+        }
+        if (stop_audio_first) audio.reset(); else video.reset();
+        check(script.stops == 0, "stopping the first pump does not send stopAll to the remaining media stream");
+        if (stop_audio_first) video.reset(); else audio.reset();
+        check(script.stops == 1, "the last pump performs device cleanup once, independent of start/stop order");
+        (void)recorder->finish(error);
+    }
+}
+
 void container_first_errors(const Directory& directory) {
     for (unsigned scenario = 0; scenario < 3; ++scenario) {
         script.reset(); xdb::remote::Device device;
@@ -538,6 +580,12 @@ std::unique_ptr<StreamSession> StreamSession::start(remote::Device&, const Reque
     Started started; started.sender_port = 24680; started.payload_type = 101;
     started.local_ssrc = script.local; started.has_local_ssrc = script.local_present;
     started.remote_ssrc = 123; started.has_remote_ssrc = true;
+    if (request.audio) {
+        auto config = xpc::make_dict();
+        xpc::dict_set(config, "AudioStreamMode", xpc::make_int64(request.offer.audio_dup ? 8 : 10));
+        auto connection = xpc::make_dict(); xpc::dict_set(connection, "streamConfig", std::move(config));
+        started.answer = xpc::make_dict(); xpc::dict_set(started.answer, "connection", std::move(connection));
+    }
     started.session_uuid.assign(16, static_cast<uint8_t>(script.starts.size()));
     error.clear(); if (status) *status = StartStatus::Started;
     return std::unique_ptr<StreamSession>(new StreamSession(nullptr, std::move(started)));
@@ -550,6 +598,11 @@ bool StreamSession::next_packet(Bytes& packet, int timeout, std::string& error) 
         error = "controlled timeout"; return false;
     }
     packet = std::move(script.packets.front()); script.packets.pop_front(); error.clear(); return true;
+}
+bool StreamSession::next_packet(Bytes&, uint16_t& peer, int timeout, std::string& error) {
+    // The audio leg stays idle in the shared-stop fixtures; only the video leg consumes scripted packets.
+    peer = 24680; std::this_thread::sleep_for(std::chrono::milliseconds(std::min(timeout, 5)));
+    error = "controlled audio timeout"; return false;
 }
 bool StreamSession::send_rtp(const Bytes& payload, uint16_t port, std::string& error) {
     std::lock_guard lock(script.mutex); script.sent.emplace_back(payload, port);
@@ -570,7 +623,7 @@ int main() {
         healthy_static_capture(directory); loss_and_validation(directory); alive_without_idr(directory); raw_file_failure(directory);
         epoch_and_terminal(directory, false); epoch_and_terminal(directory, true);
 #ifdef XDB_HAVE_LIBAVFORMAT
-        container_capture(directory, false); container_capture(directory, true); container_first_errors(directory);
+        container_capture(directory, false); container_capture(directory, true); shared_media_stop(directory); container_first_errors(directory);
 #else
         std::puts("SKIP: container capture requires libavformat; actual raw loop and syntax checks ran");
 #endif

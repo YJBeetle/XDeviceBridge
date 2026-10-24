@@ -33,7 +33,7 @@ constexpr int kMaxTargetBacklogMs = 1000;
 
 /// 音频包静默超过此时长后查询设备会话状态。
 /// 实测静音内容仍约每秒发送 100 个包，故无音频包可作为查询理由，
-/// 但不能据此直接认定会话结束。视频重建也可能使音频会话结束，
+/// 但不能据此直接认定会话结束。其他客户端的 stopAll 也可能结束音频，
 /// 400 ms 查询阈值用于缩短这种中断；对照见 docs/coredevice.md §17.2。
 constexpr uint64_t kQuietProbeMs = 400;
 
@@ -156,7 +156,7 @@ bool AudioPump::validate_stream_mode(const StreamSession::Started &started,
 void AudioPump::reject_negotiation(std::string &err) {
     negotiation_invalid_ = true;
     if (options_.stop_device_on_exit && cleanup_session_ != nullptr) {
-        err += ". Audio reception stopped; cleanup will request the device to stop streaming";
+        err += ". Audio reception stopped; cleanup will stop device streaming when no other media pump is active";
     } else {
         char lease_note[384];
         std::snprintf(lease_note, sizeof(lease_note),
@@ -262,14 +262,14 @@ void AudioPump::stop_receiving() {
 
 void AudioPump::stop() {
     stop_receiving();
-    // 接收线程已退出，外部应先关闭声卡。默认拥有者仍由 FramePump 停设备，
-    // 单独音频的唯一拥有者才可使用已确认的会话调用 stopAll。
+    // 接收线程已退出，外部应先关闭声卡。共享设备还有其他媒体泵时不发送 stopAll，
+    // 本流停止续租；最后一个拥有者才使用已确认的会话清理设备。
     if (options_.stop_device_on_exit && !device_stop_attempted_) {
         device_stop_attempted_ = true;
         const auto *session = session_ != nullptr ? session_.get() : cleanup_session_.get();
         if (session != nullptr) {
             std::string stop_error;
-            if (!session->stop(device_, stop_error, verbose_)) {
+            if (!media_lease_.stop_if_exclusive([&] { return session->stop(device_, stop_error, verbose_); })) {
                 note_terminal_error(stop_error);
                 std::fprintf(stderr, "Failed to stop audio-only device sessions: %s\n",
                              stop_error.c_str());
@@ -278,6 +278,7 @@ void AudioPump::stop() {
     }
     session_.reset();
     cleanup_session_.reset();
+    media_lease_.release();
     clear_live();
 }
 
