@@ -16,6 +16,10 @@
 #include <mutex>
 #include <string_view>
 #include <thread>
+#ifndef _WIN32
+#include <csignal>
+#include <sys/resource.h>
+#endif
 
 #ifdef XDB_HAVE_LIBAVFORMAT
 extern "C" {
@@ -320,25 +324,36 @@ void loss_and_validation(const Directory& directory) {
           "failed candidates retain PLI and recovery accounting");
     no_decode(*pump); std::string error; check(pump->finish_recording(error), "validation raw producer stops and joins");
 }
-void raw_file_failure() {
+void raw_file_failure(const Directory& directory) {
 #ifndef _WIN32
-    if (std::filesystem::exists("/dev/full")) {
-        script.reset(); xdb::remote::Device device; Pump::Options options;
-        options.decode_video = false; options.record_path = "/dev/full";
-        options.stall_restart_ms = 0; options.silence_restart_ms = 0;
-        std::string error; auto pump = Pump::start(device, options, error);
-        check(pump != nullptr, "POSIX full device opens only through the fake media session boundary");
-        if (!pump) return;
-        auto oversized_parameter = vps; oversized_parameter.resize(16384, 0);
-        script.enqueue(rtp(10, 0, oversized_parameter));
-        check(wait([&] { return !pump->capture_error().empty(); }), "actual raw fwrite failure is observable through capture_error");
-        const auto first = pump->capture_error();
-        check(!pump->finish_recording(error) && error == first && pump->capture_error() == first,
-              "raw flush/close preserves the original writer failure for headless owner cleanup");
-        no_decode(*pump); return;
-    }
+    struct rlimit previous{};
+    check(getrlimit(RLIMIT_FSIZE, &previous) == 0, "read the writer fixture file-size limit");
+    struct Restore {
+        struct rlimit limit;
+        void (*handler)(int);
+        ~Restore() { setrlimit(RLIMIT_FSIZE, &limit); std::signal(SIGXFSZ, handler); }
+    } restore{previous, std::signal(SIGXFSZ, SIG_IGN)};
+    auto limited = previous; limited.rlim_cur = 0;
+    const bool applied = setrlimit(RLIMIT_FSIZE, &limited) == 0;
+    check(applied, "apply a real file-size limit to the isolated test process");
+    if (!applied) return;
+    script.reset(); xdb::remote::Device device; Pump::Options options;
+    options.decode_video = false; options.record_path = (directory.path / "write-failure.hevc").string();
+    options.stall_restart_ms = 0; options.silence_restart_ms = 0;
+    std::string error; auto pump = Pump::start(device, options, error);
+    check(pump != nullptr, "a new raw file opens before a real write failure");
+    if (!pump) return;
+    auto oversized_parameter = vps; oversized_parameter.resize(16384, 0);
+    script.enqueue(rtp(10, 0, oversized_parameter));
+    check(wait([&] { return !pump->capture_error().empty(); }), "actual raw fwrite failure is observable through capture_error");
+    const auto first = pump->capture_error();
+    check(!pump->finish_recording(error) && error == first && pump->capture_error() == first,
+          "raw flush/close preserves the original writer failure for headless owner cleanup");
+    no_decode(*pump);
+#else
+    (void)directory;
+    std::puts("SKIP: raw writer failure fixture requires POSIX RLIMIT_FSIZE");
 #endif
-    std::puts("SKIP: actual raw write failure fixture requires POSIX /dev/full; no Windows device or synthetic file hook");
 }
 void alive_without_idr(const Directory& directory) {
     script.reset(); xdb::remote::Device device;
@@ -523,7 +538,7 @@ int main() {
     startup_and_default(directory, available);
     decoded_software_fallback();
     if (available) {
-        healthy_static_capture(directory); loss_and_validation(directory); alive_without_idr(directory); raw_file_failure();
+        healthy_static_capture(directory); loss_and_validation(directory); alive_without_idr(directory); raw_file_failure(directory);
         epoch_and_terminal(directory, false); epoch_and_terminal(directory, true);
 #ifdef XDB_HAVE_LIBAVFORMAT
         container_capture(directory, false); container_capture(directory, true); container_first_errors(directory);
