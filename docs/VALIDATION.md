@@ -124,7 +124,7 @@ this remains a cross-build check, not Android runtime acceptance.
 
 ## Desktop distribution checks
 
-The [2026-10-24 package workflow](https://github.com/YJBeetle/XDeviceBridge/actions/runs/39997769147)
+The [2026-10-24 package workflow](https://github.com/scrctl/XDeviceBridge/actions/runs/39997769147)
 passed at commit `06019f9` on Ubuntu 24.04 x86-64, macOS 15 arm64 and
 Windows 2025 x86-64. Each native job:
 
@@ -140,7 +140,7 @@ Windows 2025 x86-64. Each native job:
 
 Local macOS checks also covered user-directory installation, command lookup and
 runtime archive SHA256 verification. The separate
-[Developer ID workflow](https://github.com/YJBeetle/XDeviceBridge/actions/runs/40001700376)
+[Developer ID workflow](https://github.com/scrctl/XDeviceBridge/actions/runs/40001700376)
 passed signing and Apple notarization at commit `5c77f69` (Accepted). This does not
 verify execution on the minimum deployment OS. These packaging checks use isolated
 data directories and do not exercise physical-device services.
@@ -183,9 +183,9 @@ The user also confirmed prior listening quality was satisfactory; it was not
 repeated as a new listening test during this automated check.
 
 The updated three-platform package run at `6a34bab` completed successfully:
-[packages](https://github.com/YJBeetle/XDeviceBridge/actions/runs/40003804533).
+[packages](https://github.com/scrctl/XDeviceBridge/actions/runs/40003804533).
 The Developer ID package at `3cfb502` also passed Apple notarization:
-[signed package](https://github.com/YJBeetle/XDeviceBridge/actions/runs/40005397783).
+[signed package](https://github.com/scrctl/XDeviceBridge/actions/runs/40005397783).
 
 
 With the client pinned to `3cfb502`, MaaFramework's actual C ABI connected over USB

@@ -4,8 +4,8 @@
 
 ## 桌面运行包
 
-从 [`packages` 工作流产物](https://github.com/YJBeetle/XDeviceBridge/actions/workflows/packages.yml)
-或[带版本标签的 GitHub Release](https://github.com/YJBeetle/XDeviceBridge/releases)
+从 [`packages` 工作流产物](https://github.com/scrctl/XDeviceBridge/actions/workflows/packages.yml)
+或[带版本标签的 GitHub Release](https://github.com/scrctl/XDeviceBridge/releases)
 下载适合操作系统和 CPU 架构的运行包。独立的 `*-sources` 包包含对应源码和构建信息，
 运行 xdb 不需要下载它。使用 `*-SHA256SUMS.txt` 校验归档文件。
 
