@@ -4,10 +4,12 @@
 
 ## 桌面运行包
 
-从 [`packages` 工作流产物](https://github.com/scrctl/XDeviceBridge/actions/workflows/packages.yml)
-或[带版本标签的 GitHub Release](https://github.com/scrctl/XDeviceBridge/releases)
-下载适合操作系统和 CPU 架构的运行包。独立的 `*-sources` 包包含对应源码和构建信息，
-运行 xdb 不需要下载它。使用 `*-SHA256SUMS.txt` 校验归档文件。
+从 [GitHub Releases](https://github.com/scrctl/XDeviceBridge/releases) 下载适合操作系统和 CPU 架构的运行包。
+首个版本发布前，可打开成功的 [packages 工作流](https://github.com/scrctl/XDeviceBridge/actions/workflows/packages.yml)，
+在 Artifacts 中下载对应的 `xdb-<OS>-<ARCH>`，再解压其中的运行包。工作流附件会过期，下载需要登录 GitHub。
+开发阶段的 macOS 公证包见[公证工作流](https://github.com/scrctl/XDeviceBridge/actions/workflows/macos-notarize.yml)的
+`xdb-macos-notarized` 附件。独立的 `*-sources` 包包含对应源码和构建信息，
+运行 xdb 不需要下载它。使用包内的 `SHA256SUMS.txt` 或 `*-SHA256SUMS.txt` 校验归档文件。
 
 运行包包含 `bin/xdb`（Windows 为 `xdb.exe`）、客户端和服务端库、精简的 FFmpeg
 动态库，以及依赖许可证。请保留完整目录结构，不要只复制可执行文件。
@@ -109,9 +111,9 @@ OpenSSL 和 curl 静态链接，FFmpeg 使用动态库，不开启 GPL 或 nonfr
 
 ## macOS 签名公证运行包
 
-推送与 CMake 版本一致的 `vX.Y.Z` 标签时自动运行 `macOS signed and notarized package`；
+推送与 CMake 版本一致的 `vX.Y.Z` 标签时，`packages` 工作流自动调用 macOS 签名与公证流程；
 标签提交必须属于 main 历史。维护者也可在 main 手动运行，普通提交和 PR 不触发公证。
-使用 `Build` Environment，Secrets：`MACOS_CERTIFICATE_P12_BASE64`、
+使用 `Build` Environment，需允许 `main` 分支及 `v*` 标签。Secrets：`MACOS_CERTIFICATE_P12_BASE64`、
 `MACOS_CERTIFICATE_PASSWORD`、`NOTARY_APPLE_ID`、`NOTARY_APP_PASSWORD`；
 Variables：`SIGNING_IDENTITY`、`SIGNING_TEAM_ID`。
 P12 包含 Developer ID Application 私钥；NOTARY_APP_PASSWORD 为 App 专用密码。
@@ -119,7 +121,9 @@ P12 包含 Developer ID Application 私钥；NOTARY_APP_PASSWORD 为 App 专用�
 任务在安装名改写完成后给程序及动态库签名，并在签名后记录运行包与源码材料哈希。
 主程序启用 Hardened Runtime，使用安全时间戳。临时签名钥匙串自动删除。
 仅在 Apple 返回 Accepted 后上传 `xdb-macos-notarized` 运行 ZIP、对应源码及校验和；
-公证响应另作为 `macos-notarization-result` 附件保留。任务不自动发布 Release。
+公证响应另作为 `macos-notarization-result` 附件保留。版本标签构建会等待 Linux/Windows 构建成功及
+Apple 返回 `Accepted`，再自动创建或更新同一个 GitHub Release，上传公证 ZIP、对应源码和校验和；
+任一构建或公证失败均阻止发布。main 的手动公证仅生成开发附件。
 普通 packages 工作流仍为 ad hoc 开发包。ZIP 和裸 CLI 不能 staple，
 Gatekeeper 需联网查询票据；若需离线票据，应另行分发可 staple 的 DMG/PKG。
 

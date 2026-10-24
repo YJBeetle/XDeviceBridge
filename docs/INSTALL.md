@@ -4,10 +4,16 @@ English | [简体中文](INSTALL_zh.md)
 
 ## Desktop runtime packages
 
-Download the runtime archive for your operating system and CPU from the
-`packages` workflow artifacts or a tagged GitHub release. The separate
+Download the runtime archive for your operating system and CPU from
+[GitHub Releases](https://github.com/scrctl/XDeviceBridge/releases). Before the
+first release, use a successful [packages workflow run](https://github.com/scrctl/XDeviceBridge/actions/workflows/packages.yml):
+open its Artifacts section, download the matching `xdb-<OS>-<ARCH>` artifact,
+then extract the runtime archive inside it. Workflow artifacts expire and GitHub
+requires sign-in to download them. Developer ID signed macOS development packages
+are available from the [notarization workflow](https://github.com/scrctl/XDeviceBridge/actions/workflows/macos-notarize.yml)
+as `xdb-macos-notarized`. The separate
 `*-sources` archive contains the matching sources and build information; it is
-not needed to run xdb. Verify the archive using `*-SHA256SUMS.txt`.
+not needed to run xdb. Verify the archive using the included `SHA256SUMS.txt` or `*-SHA256SUMS.txt`.
 
 The runtime includes `bin/xdb` (`xdb.exe` on Windows), the client/server libraries,
 minimal shared FFmpeg libraries, and dependency license texts. Keep the extracted
@@ -120,14 +126,20 @@ and update PATH / XDB_EXECUTABLE. Roll back those paths on startup failure. Do n
 replace loaded DLLs in place. Incompatible listeners are rejected, never automatically
 killed. See [protocol version policy](PROTOCOL.md#version-and-upgrade-policy).
 
+## macOS signing and notarization
+
 Ordinary packages CI builds are ad hoc signed. Separately labelled `notarized`
 macOS ZIPs are Developer ID signed and Apple Accepted; tickets are queried online
 because a bare CLI ZIP cannot be stapled.
 
-Version tags matching the CMake project version (`vX.Y.Z`) automatically trigger
-the macOS signing/notarization workflow. The tagged commit must be in main history.
-Manual main runs remain available; normal pushes and PRs do not submit to Apple.
-This produces accepted artifacts, not an automatic GitHub Release.
+Version tags matching the CMake project version (`vX.Y.Z`) automatically run
+macOS signing/notarization through the packages workflow. The tagged commit must
+be in main history. Release publication waits for the Linux/Windows builds and
+Apple's `Accepted` result, then uploads the notarized macOS ZIP, matching source
+archives and checksums to the same GitHub Release. A failed build or notarization
+blocks publication. The repository's `Build` environment must allow the `main`
+branch and `v*` tags. Manual main runs produce development artifacts; normal
+pushes and PRs do not submit to Apple.
 
 
 For a notarized CLI package, verify the code and its online notarization ticket

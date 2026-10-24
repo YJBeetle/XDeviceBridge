@@ -1,7 +1,6 @@
 name: macOS signed and notarized package
 on:
-  push:
-    tags: ['v*']
+  workflow_call:
   workflow_dispatch:
 permissions:
   contents: read

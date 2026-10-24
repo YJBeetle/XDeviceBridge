@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-15, windows-2025]
+        os: ${{ fromJSON(startsWith(github.ref, 'refs/tags/v') && '["ubuntu-24.04", "windows-2025"]' || '["ubuntu-24.04", "macos-15", "windows-2025"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -96,9 +96,14 @@ jobs:
           path: build-packages/*-sources.*
           if-no-files-found: error
 
+  notarize:
+    if: startsWith(github.ref, 'refs/tags/v')
+    uses: ./.github/workflows/macos-notarize.yml
+    secrets: inherit
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: desktop
+    needs: [desktop, notarize]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
