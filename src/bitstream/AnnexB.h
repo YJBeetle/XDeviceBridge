@@ -1,5 +1,7 @@
 #pragma once
 
+#include "HevcLimits.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -48,12 +50,13 @@ public:
     /// 两种输入方式不能在未 flush/discard_pending 的状态下混用。
     /// 返回 false 表示输入模式冲突（或非空输入的 data 为空），状态保持不变。
     /// Annex-B 本身没有采样 ticks，输出的 sampling_timestamp 为 nullopt。
+    /// 缓存超过单 NAL 预算或 AU 预算时丢弃未提交数据并返回 false。
     bool feed(const uint8_t *data, std::size_t len);
 
     /// 输入不含起始码的完整 NAL，保留原始 EPB。marker 在本条 NAL 后关闭 AU，
     /// 仅有参数/前缀的 AU 不交付。同一 AU 的各条 VCL 必须具有相同的 optional
     /// ticks（全 unknown 允许）；不同值或 known/unknown 混合会丢弃当前 AU。
-    /// 返回 false 表示模式冲突、NAL 过短或残缺 slice/时间不一致。
+    /// 返回 false 表示模式冲突、NAL/参数/AU 超预算、过短或残缺 slice/时间不一致。
     bool push_nal(Nal nal, std::optional<int64_t> sampling_timestamp = std::nullopt,
                   bool marker = false);
 
@@ -70,7 +73,9 @@ public:
     bool has_parameter_sets() const { return !vps_.empty() && !sps_.empty() && !pps_.empty(); }
 
 private:
-    void emit_range(std::size_t end);
+    bool emit_range(std::size_t end);
+    bool can_append(const Nal &) const;
+    bool append_nal(Nal &&);
     bool on_nal(Nal &&raw, std::optional<int64_t> sampling_timestamp);
     void close_au();
     void discard_au();
@@ -84,6 +89,7 @@ private:
     std::size_t scan_from_ = 0;     ///< pending_ 中下一个待检查的起始码位置
 
     std::vector<Nal> cur_au_;
+    std::size_t au_bytes_ = 0;
     bool au_open_ = false;
     /// cur_au_ 是否包含 VCL NAL。仅在包含图像数据时提交 AU，
     /// VPS/SPS/PPS 前缀继续保留，与随后到达的图像组成同一 AU。

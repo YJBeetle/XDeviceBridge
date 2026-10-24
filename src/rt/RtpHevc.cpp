@@ -1,4 +1,5 @@
 #include "util/Bytes.h"
+#include "bitstream/HevcLimits.h"
 #include "rt/RtpHevc.h"
 
 #include <utility>
@@ -130,6 +131,11 @@ bool HevcRtpDepacketizer::push_nals(std::span<const uint8_t> datagram,
         reset();
         return true;
     }
+    if (payload.size() > kMaxHevcNalBytes) {
+        ++stats_.malformed;
+        reset();
+        return true;
+    }
     const uint8_t type = static_cast<uint8_t>((payload[0] >> 1) & 0x3F);
     auto body = payload.subspan(2);
 
@@ -152,7 +158,10 @@ bool HevcRtpDepacketizer::push_nals(std::span<const uint8_t> datagram,
                 return true;
             }
             rest = rest.subspan(len);
-            ++count;
+            if (++count > kMaxHevcAccessUnitNals) {
+                ++stats_.malformed;
+                return true;
+            }
         }
         if (count == 0) {
             ++stats_.malformed;
@@ -204,6 +213,11 @@ bool HevcRtpDepacketizer::push_nals(std::span<const uint8_t> datagram,
             return true;
         }
         // 当前适配不含 DONL，FU 头之后的字节全部属于原始 NAL 载荷。
+        if (body.size() > kMaxHevcNalBytes - partial_.bytes.size()) {
+            ++stats_.malformed;
+            reset();
+            return true;
+        }
         partial_.bytes.insert(partial_.bytes.end(), body.begin(), body.end());
         partial_.last_sequence = info.sequence;
         if (end) {

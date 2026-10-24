@@ -1075,8 +1075,53 @@ void test_extended_sequence() {
 
 }  // namespace
 
+void test_reassembly_budgets() {
+    using namespace xdb;
+    std::string error;
+    rt::HevcRtpDepacketizer depacketizer;
+    std::vector<rt::ReceivedNal> output;
+    const std::vector<uint8_t> chunk(32768, 0x55);
+    uint16_t sequence = 1;
+    depacketizer.push_nals(packet(sequence++, 100, false, fragment(20, chunk, true, false)), output, error);
+    for (std::size_t bytes = chunk.size() + 2; bytes <= kMaxHevcNalBytes; bytes += chunk.size())
+        depacketizer.push_nals(packet(sequence++, 100, false, fragment(20, chunk, false, false)), output, error);
+    check(output.empty() && !depacketizer.mid_fragment() && depacketizer.stats().malformed == 1,
+          "an endless contiguous FU is dropped at the byte budget without publishing a partial NAL");
+    depacketizer.push_nals(packet(sequence++, 200, false, fragment(20, {0x80}, true, false)), output, error);
+    depacketizer.push_nals(packet(sequence++, 200, true, fragment(20, {1}, false, true)), output, error);
+    check(output.size() == 1 && output[0].bytes == single(20, {0x80, 1}),
+          "FU overflow does not prevent a fresh complete IDR");
+
+    int delivered = 0;
+    AnnexBParser parser([&](std::vector<Nal> &&, bool) { ++delivered; });
+    check(parser.push_nal(single(20, {0x80}), 100), "bounded AU starts with a first slice");
+    for (std::size_t i = 1; i < kMaxHevcAccessUnitNals; ++i)
+        if (!parser.push_nal(single(20, {0}), 100)) { check(false, "AU accepts its NAL-count boundary"); break; }
+    check(!parser.push_nal(single(20, {0}), 100) && delivered == 0,
+          "unlimited continuation slices cannot exceed the AU NAL-count budget");
+    check(parser.push_nal(single(20, {0x80}), 200, true) && delivered == 1,
+          "NAL-count overflow discards the old AU and permits a fresh IDR");
+
+    Nal large(4u * 1024u * 1024u, 0x55); large[0] = 40; large[1] = 1; large[2] = 0x80;
+    check(parser.push_nal(large, 300), "large AU starts within the per-NAL budget");
+    large[2] = 0;
+    for (int i = 0; i < 3; ++i) check(parser.push_nal(large, 300), "AU accepts bytes up to its boundary");
+    check(!parser.push_nal(large, 300) && delivered == 1, "AU byte overflow never emits the accumulated damaged picture");
+    check(parser.push_nal(single(20, {0x80}), 400, true) && delivered == 2, "AU byte overflow permits the next IDR");
+    Nal parameter(kMaxHevcParameterBytes + 1, 0); parameter[0] = 64; parameter[1] = 1;
+    check(!parser.push_nal(std::move(parameter)) && parser.vps().empty(), "oversized parameter set never enters the cache");
+
+    parser.flush();
+    std::vector<uint8_t> pending(kMaxHevcNalBytes + 4, 0x55);
+    check(parser.feed(pending.data(), pending.size()), "unterminated byte input can reach its bounded capacity");
+    check(!parser.feed(pending.data(), 1), "unterminated Annex-B input is bounded before appending");
+    parser.flush();
+    check(delivered == 2, "flushing after overflow cannot publish rejected bytes");
+}
+
 int main() {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
+    test_reassembly_budgets();
     test_aggregation();
     test_fragmentation();
     test_lost_fragments();

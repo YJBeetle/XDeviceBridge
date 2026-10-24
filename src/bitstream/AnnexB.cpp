@@ -49,6 +49,10 @@ bool AnnexBParser::feed(const uint8_t *data, std::size_t len) {
         return false;
     }
     input_mode_ = InputMode::Bytes;
+    if (len > kMaxHevcNalBytes + 4 - pending_.size()) {
+        discard_pending();
+        return false;
+    }
     pending_.insert(pending_.end(), data, data + len);
 
     std::size_t i = scan_from_;
@@ -58,7 +62,10 @@ bool AnnexBParser::feed(const uint8_t *data, std::size_t len) {
             if (end > nal_begin_ && pending_[end - 1] == 0) {
                 --end;  // 四字节起始码，前一个 0 也属于起始码
             }
-            emit_range(end);
+            if (!emit_range(end)) {
+                discard_pending();
+                return false;
+            }
             nal_begin_ = i + 3;
             i = nal_begin_;
             continue;
@@ -93,7 +100,7 @@ bool AnnexBParser::push_nal(Nal nal, std::optional<int64_t> sampling_timestamp, 
 }
 
 void AnnexBParser::flush() {
-    emit_range(pending_.size());
+    if (!emit_range(pending_.size())) discard_au();
     pending_.clear();
     scan_from_ = 0;
     nal_begin_ = 0;
@@ -109,17 +116,29 @@ void AnnexBParser::discard_pending() {
     input_mode_ = InputMode::None;
 }
 
-void AnnexBParser::emit_range(std::size_t end) {
+bool AnnexBParser::emit_range(std::size_t end) {
     if (end <= nal_begin_) {
-        return;
+        return true;
     }
     std::vector<uint8_t> raw(pending_.begin() + static_cast<long>(nal_begin_),
                              pending_.begin() + static_cast<long>(end));
-    on_nal(std::move(raw), std::nullopt);
+    return on_nal(std::move(raw), std::nullopt);
+}
+
+bool AnnexBParser::can_append(const Nal &nal) const {
+    return cur_au_.size() < kMaxHevcAccessUnitNals &&
+           nal.size() <= kMaxHevcAccessUnitBytes - au_bytes_;
+}
+
+bool AnnexBParser::append_nal(Nal &&nal) {
+    if (!can_append(nal)) return false;
+    au_bytes_ += nal.size();
+    cur_au_.push_back(std::move(nal));
+    return true;
 }
 
 bool AnnexBParser::on_nal(Nal &&nal, std::optional<int64_t> sampling_timestamp) {
-    if (nal.size() < 3) {
+    if (nal.size() < 3 || nal.size() > kMaxHevcNalBytes) {
         return false;
     }
     // NAL、解码样本和参数集缓存都保留原始 EPB；仅语法解析时另行转换为 RBSP。
@@ -149,16 +168,17 @@ bool AnnexBParser::on_nal(Nal &&nal, std::optional<int64_t> sampling_timestamp) 
         if (is_irap(type)) {
             au_keyframe_ = true;
         }
-        cur_au_.push_back(std::move(nal));
-        return true;
+        return append_nal(std::move(nal));
     }
 
     if (is_prefix(type)) {
+        if (is_param_set(type) && nal.size() > kMaxHevcParameterBytes) return false;
         // 参数集、AUD 和 prefix SEI 属于下一 AU。当前 AU 已含 VCL 时先提交，
         // 尚无图像时继续累积前缀，避免把下一帧的 SEI 交给前一帧。
         if (au_has_vcl_) {
             close_au();
         }
+        if (!can_append(nal)) return false;
         // 前一 AU 的回调可能使用缓存补齐未重复发送的参数集；提交完成后，
         // 才能让下一图像的参数覆盖缓存。
         if (type == static_cast<uint8_t>(NalType::Vps)) {
@@ -169,13 +189,10 @@ bool AnnexBParser::on_nal(Nal &&nal, std::optional<int64_t> sampling_timestamp) 
             pps_ = nal;
         }
         au_open_ = true;
-        cur_au_.push_back(std::move(nal));
-        return true;
+        return append_nal(std::move(nal));
     }
 
-    if (au_open_) {
-        cur_au_.push_back(std::move(nal));
-    }
+    if (au_open_) return append_nal(std::move(nal));
     return true;
 }
 
@@ -191,6 +208,7 @@ void AnnexBParser::close_au() {
 
 void AnnexBParser::discard_au() {
     cur_au_.clear();
+    au_bytes_ = 0;
     au_open_ = false;
     au_has_vcl_ = false;
     au_keyframe_ = false;
