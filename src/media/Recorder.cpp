@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <condition_variable>
 #include <deque>
@@ -55,6 +56,7 @@ struct Recorder::Impl {
         std::size_t cost = 0;
         bool media_owned = false;
         bool vcl = false, idr = false, keyframe = false;
+        bool video_discontinuity = false;
     };
     struct Packet {
         std::vector<uint8_t> bytes;
@@ -85,6 +87,8 @@ struct Recorder::Impl {
     std::deque<Event> ingress;
     std::size_t owned_bytes = 0, media_events = 0;
     bool sealed = false, completed = false;
+    bool video_discontinuity_pending = false;
+    std::atomic<bool> awaiting_video_idr{true};
     std::string first_error;
     std::thread worker;
 
@@ -244,9 +248,10 @@ struct Recorder::Impl {
         if (stream.source && stream.source != event.source) {
             fail("Recording media source changed within the session"); return;
         }
+        if (event.video_discontinuity) awaiting_video_idr = true;
         if (!event.vcl) return; // parameter-only prefixes belong to the next image
         if (!bind_media(stream, event, event.ticks)) return;
-        if (!video_config && !event.idr) return;
+        if (awaiting_video_idr && !event.idr) return;
         const auto* current = active_video_config ? &*active_video_config
                                                  : video_config ? &*video_config : nullptr;
         const bool changed = current && (event.vps != current->vps ||
@@ -255,15 +260,24 @@ struct Recorder::Impl {
         std::optional<RecordingVideoConfig> checked;
         if (first || changed) {
             if (!event.idr) {
-                fail("Recording HEVC configuration changes require an IDR"); return;
+                awaiting_video_idr = true; return;
             }
             checked = inspect_recording_video_config(event.vps, event.sps, event.pps);
+            if (checked->status == RecordingVideoConfig::Status::Invalid) {
+                awaiting_video_idr = true; return;
+            }
             if (!checked->permits_equal_dts_pts()) {
                 fail(checked->error.empty() ? "Recording HEVC requires a no-reorder configuration" : checked->error);
                 return;
             }
-            const auto syntax = inspect_recording_idr(event.nals, *checked);
-            if (!syntax.valid()) { fail(syntax.error); return; }
+        }
+        if (event.idr) {
+            const auto syntax = inspect_recording_idr(event.nals, checked ? *checked : *current);
+            if (!syntax.valid()) {
+                if (syntax.status == RecordingIdrSyntax::Status::Unsupported) fail(syntax.error);
+                else awaiting_video_idr = true;
+                return;
+            }
         }
         // Encode no pixels: retain each NAL verbatim and prepend the new epoch's
         // parameters to its IDR. hev1/MKV carry these in-band; the initial header
@@ -276,7 +290,7 @@ struct Recorder::Impl {
             if (changed && type >= 32 && type <= 34) continue;
             if (nal.size() > kMaxRecordingMuxerPacketBytes - 4 ||
                 bytes > kMaxRecordingMuxerPacketBytes - 4 - nal.size()) {
-                fail("Recording HEVC AU is incomplete or exceeds the packet budget"); return;
+                awaiting_video_idr = true; return;
             }
             bytes += nal.size() + 4;
         }
@@ -319,6 +333,7 @@ struct Recorder::Impl {
             active_video_config = std::move(checked);
             event.cost -= active_configuration_cost;
         }
+        awaiting_video_idr = false;
     }
 
     void process(Event& event) {
@@ -642,30 +657,33 @@ bool Recorder::video(std::span<const uint8_t> session, uint32_t source, int64_t 
     }
     if (session.size() != 16) { fail("Recording session UUID is invalid"); return false; }
     if (nals.empty() || nals.size() > kMaxRecordingIdrNals) {
-        fail("Recording HEVC AU is empty or exceeds the NAL-count budget"); return false;
+        video_discontinuity(); return false;
     }
     std::size_t size = 0;
     for (const auto& nal : nals) {
         if (nal.size() < 2 || nal.size() > kMaxRecordingMuxerPacketBytes - 4 ||
             size > kMaxRecordingMuxerPacketBytes - 4 - nal.size()) {
-            fail("Recording HEVC AU is incomplete or exceeds the packet budget"); return false;
+            video_discontinuity(); return false;
         }
         // 单 base layer / temporal layer 配置不能混入另一层或非法 HEVC 头。
         if ((nal[0] & 0x81) != 0 || (nal[1] >> 3) != 0 || (nal[1] & 7) != 1) {
-            fail("Recording HEVC AU has an invalid or unsupported layer header"); return false;
+            video_discontinuity(); return false;
         }
         size += nal.size() + 4;
     }
-    if (size == 0) { fail("Recording HEVC AU is empty"); return false; }
+    if (size == 0) { video_discontinuity(); return false; }
     std::size_t parameters = 0;
     for (const auto* nal : {&vps, &sps, &pps}) {
         if (nal->size() > kMaxRecordingVideoParameterBytes - parameters) {
-            fail("Recording HEVC parameters exceed the configuration budget"); return false;
+            video_discontinuity(); return false;
         }
         parameters += nal->size();
     }
+    // 单个 AU 即使队列为空也放不下：丢弃并等待 IDR；与持续积压耗尽共享预算不同。
+    const auto cost = size * 2 + parameters * 3;
+    if (cost > impl_->options.encoded_budget) { video_discontinuity(); return false; }
     // 原编码 + 提交 mux 的副本；参数为检查结果和开 mux 预留临时副本。
-    return impl_->admit(size * 2 + parameters * 3, true, [&](Impl::Event& event) {
+    return impl_->admit(cost, true, [&](Impl::Event& event) {
         event.kind = Impl::Kind::Video;
         std::copy(session.begin(), session.end(), event.session.begin());
         event.source = source;
@@ -678,6 +696,8 @@ bool Recorder::video(std::span<const uint8_t> session, uint32_t source, int64_t 
             event.keyframe |= type >= 16 && type <= 21;
         }
         event.vps = vps; event.sps = sps; event.pps = pps;
+        event.video_discontinuity = impl_->video_discontinuity_pending;
+        impl_->video_discontinuity_pending = false;
     });
 }
 
@@ -712,6 +732,17 @@ bool Recorder::sender_report(Track track, std::span<const uint8_t> session,
 }
 
 void Recorder::fail(std::string_view reason) { impl_->fail(reason); }
+
+void Recorder::video_discontinuity() {
+    std::lock_guard lock(impl_->mutex);
+    if (!impl_->sealed) impl_->video_discontinuity_pending = true;
+}
+
+bool Recorder::awaiting_video_keyframe() const {
+    std::lock_guard lock(impl_->mutex);
+    return impl_->options.include_video && !impl_->sealed &&
+        (impl_->video_discontinuity_pending || impl_->awaiting_video_idr);
+}
 
 std::string Recorder::error() const {
     std::lock_guard lock(impl_->mutex);

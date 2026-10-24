@@ -220,21 +220,23 @@ const Nal landscape_sps = hex("42010101600000030090000003000003001ea010204165ba4
 const Nal landscape_pps = hex("4401c073c189");
 const Nal landscape_idr = hex("2801ac214f400e7ffeebf349a4151de360");
 
-void verify_dynamic_decode(const std::filesystem::path& path, bool mp4) {
+void verify_video_decode(const std::filesystem::path& path, bool mp4,
+                         const std::vector<std::pair<int,int>>& expected_dimensions,
+                         const std::vector<int64_t>& expected_pts) {
     AVFormatContext* input = nullptr;
     check(avformat_open_input(&input, path.string().c_str(), nullptr, nullptr) >= 0,
-          "dynamic dimensions container opens");
+          "recorded container opens for independent video decoding");
     if (!input) return;
     int index = -1;
     for (unsigned i = 0; i < input->nb_streams; ++i)
         if (input->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) index = static_cast<int>(i);
-    check(index >= 0, "dynamic dimensions file has a video track");
+    check(index >= 0, "recorded file has a video track");
     if (index < 0) { avformat_close_input(&input); return; }
     const auto* parameters = input->streams[index]->codecpar;
     check(parameters->width == 64 && parameters->height == 64,
           "header stays attached to first image when changes precede trusted clocks");
     if (mp4) check(parameters->codec_tag == MKTAG('h','e','v','1'),
-                    "dynamic MP4 uses in-band HEVC sample entry");
+                    "MP4 uses in-band HEVC sample entry");
     const AVCodec* codec = avcodec_find_decoder_by_name("hevc");
     AVCodecContext* decoder = avcodec_alloc_context3(codec);
     check(decoder && avcodec_parameters_to_context(decoder, parameters) >= 0 &&
@@ -252,30 +254,28 @@ void verify_dynamic_decode(const std::filesystem::path& path, bool mp4) {
                                               AVRational{1,1000000}));
             av_frame_unref(frame);
         }
-        check(result == AVERROR(EAGAIN) || result == AVERROR_EOF, "each changed configuration fully decodes");
+        check(result == AVERROR(EAGAIN) || result == AVERROR_EOF, "recorded video fully decodes");
     };
     if (packet && frame) {
         int result;
         while ((result = av_read_frame(input, packet)) >= 0) {
             if (packet->stream_index == index) {
-                check(avcodec_send_packet(decoder, packet) >= 0, "changed-dimension packet enters decoder");
+                check(avcodec_send_packet(decoder, packet) >= 0, "recorded packet enters decoder");
                 drain();
             }
             av_packet_unref(packet);
         }
-        check(result == AVERROR_EOF, "dynamic recording demux reaches EOF");
+        check(result == AVERROR_EOF, "recorded container demux reaches EOF");
         check(avcodec_send_packet(decoder, nullptr) >= 0, "dynamic decoder drains cleanly");
         drain();
     } else check(false, "dynamic decoder packet/frame allocations succeed");
-    const std::vector<std::pair<int,int>> expected_dimensions{{64,64},{128,64},{64,64}};
     check(dimensions == expected_dimensions,
-          "single recording decodes first, changed and restored dimensions without transcoding");
-    const std::vector<int64_t> expected_pts{0,10000,20000};
+          "recording decodes the expected intact pictures without transcoding");
     bool timing_correct = timestamps.size() == expected_pts.size();
     for (std::size_t i = 0; timing_correct && i < timestamps.size(); ++i)
         timing_correct = near(timestamps[i], expected_pts[i]);
     check(timing_correct,
-          "configuration changes retain common clock and monotonically advancing PTS");
+          "decoded pictures retain their original recording timeline");
     av_frame_free(&frame); av_packet_free(&packet); avcodec_free_context(&decoder); avformat_close_input(&input);
 }
 
@@ -295,7 +295,7 @@ void dynamic_configurations(const Directory& directory) {
         report(*recorder,Track::Video,sr(0,0,1000)); report(*recorder,Track::Video,sr(0,24000,1001));
         check(recorder->finish(error), "valid configuration transitions complete one container");
         if (!error.empty()) std::fprintf(stderr,"DYNAMIC: %s\n",error.c_str());
-        if (error.empty()) verify_dynamic_decode(path, format == Format::Mp4);
+        if (error.empty()) verify_video_decode(path, format == Format::Mp4, {{64,64},{128,64},{64,64}}, {0,10000,20000});
     }
     {
         const auto path = directory.path / "dynamic-prefix-budget.mkv";
@@ -325,8 +325,10 @@ void dynamic_configurations(const Directory& directory) {
         if (non_idr) picture[0] = 0x02; else picture.resize(3);
         check(recorder->video(video_session,0,240,{picture},vps,landscape_sps,landscape_pps),
               "invalid transition enters worker validation");
-        check(!recorder->finish(error) && !error.empty(),
-              "configuration change without valid complete IDR still fails closed");
+        report(*recorder,Track::Video,sr(0,0,1000));
+        report(*recorder,Track::Video,sr(0,24000,1001));
+        check(recorder->finish(error) && error.empty(),
+              "invalid transition is discarded and an already valid recording can finish without another IDR");
     }
 }
 
@@ -528,6 +530,69 @@ void common_origin(const Directory& directory) {
     const std::array<int64_t,3> video_pts{20000, 61667, 270000};
     const std::array<int64_t,6> audio_pts{0,10000,20000,30000,40000,50000};
     verify_video(file, video_pts); verify_audio(file, audio_pts);
+}
+
+void damaged_video_recovery(const Directory& directory) {
+    using Format = xdb::media::RecordingMuxer::Format;
+    for (const auto format : {Format::Mp4, Format::Matroska}) {
+        for (unsigned damage = 0; damage < 7; ++damage) {
+            const auto path = directory.path / ("recover-" + std::to_string(damage) +
+                (format == Format::Mp4 ? ".mp4" : ".mkv"));
+            std::string error;
+            auto config = options(path, true, format);
+            if (damage == 6) config.encoded_budget = 1024;
+            auto recorder = Recorder::start(config, error);
+            check(recorder != nullptr, "recoverable A/V recording starts"); if (!recorder) continue;
+            begin(*recorder, true);
+            video(*recorder, 0);
+            check(recorder->audio(audio_session,9,0,silence), "audio before video damage is admitted");
+            report(*recorder,Track::Video,sr(0,0,1000));
+            report(*recorder,Track::Video,sr(0,24000,1001));
+            report(*recorder,Track::Audio,sr(9,0,1000));
+            report(*recorder,Track::Audio,sr(9,48000,1001));
+            if (damage == 0) {
+                // Coalescing loss notices must not retroactively discard the queued good IDR.
+                for (unsigned i = 0; i < 2000; ++i) recorder->video_discontinuity();
+            } else if (damage == 1) {
+                check(!recorder->video(video_session,0,240,{{0x28}},vps,sps,pps),
+                      "a truncated NAL is rejected without sealing recording");
+            } else if (damage == 2) {
+                Nal oversized(xdb::media::kMaxRecordingMuxerPacketBytes,0);
+                check(!recorder->video(video_session,0,240,{oversized},vps,sps,pps),
+                      "an oversized AU is rejected before queue allocation");
+            } else if (damage == 3) {
+                check(recorder->video(video_session,0,240,{{0x28,0x01,0xc0}},vps,sps,pps),
+                      "a damaged IDR with unchanged parameters reaches actual syntax validation");
+            } else if (damage == 4) {
+                Nal changed = pps; changed.back() ^= 1;
+                check(recorder->video(video_session,0,240,{idr},vps,sps,changed),
+                      "a malformed parameter transition reaches worker validation");
+            } else if (damage == 5) {
+                Nal non_idr = landscape_idr; non_idr[0] = 0x02;
+                check(recorder->video(video_session,0,240,{non_idr},vps,landscape_sps,landscape_pps),
+                      "new parameters on a non-IDR require recovery rather than sealing");
+            } else {
+                Nal bulky(4096,0); bulky[0] = 0x28; bulky[1] = 0x01;
+                check(!recorder->video(video_session,0,240,{bulky},vps,sps,pps),
+                      "an AU too large for an empty queue is discarded without sealing");
+            }
+            Nal dependent = idr; dependent[0] = 0x02;
+            check(recorder->video(video_session,0,480,{dependent},vps,sps,pps),
+                  "dependent video is admitted for discard while waiting for IDR");
+            // Audio has its own sequence loss (20ms is absent); retain the real time gap.
+            for (const uint32_t ticks : {480u,1440u,2880u})
+                check(recorder->audio(audio_session,9,ticks,silence),
+                      "audio continues through missing video and audio intervals");
+            video(*recorder,1440);
+            check(recorder->finish(error) && error.empty(),
+                  "recoverable damage finishes one successful container");
+            const auto file = read(path);
+            const std::array<int64_t,2> video_pts{0,60000};
+            const std::array<int64_t,4> audio_pts{0,10000,30000,60000};
+            verify_video(file,video_pts); verify_audio(file,audio_pts);
+            verify_video_decode(path, format == Format::Mp4, {{64,64},{64,64}}, {0,60000});
+        }
+    }
 }
 
 void wrapping_audio_and_first_idr(const Directory& directory) {
@@ -817,8 +882,9 @@ void failure_paths(const Directory& directory) {
         if (recorder) {
             begin(*recorder,false);
             check(!recorder->video(video_session,0,0,{idr},vps,sps,pps),"bounded admission rejects a packet without waiting for space");
-            recorder->fail("later");
-            check(!recorder->finish(error) && error.find("budget") != std::string::npos,"budget failure survives sealing and finalization");
+            check(recorder->error().empty(),"one unqueueable video AU is recoverable");
+            check(!recorder->finish(error) && !error.empty(),
+                  "finishing without any usable initial IDR still fails explicitly");
         }
     }
     {
@@ -847,12 +913,11 @@ void failure_paths(const Directory& directory) {
             check(!std::filesystem::exists(config.path),"budget overflow before trusted clocks does not open an output file");
         }
     }
-    for (int kind = 0; kind < 4; ++kind) {
+    for (int kind = 1; kind < 4; ++kind) {
         auto recorder = Recorder::start(options(directory.path / ("failure-" + std::to_string(kind))),error);
         check(recorder != nullptr,"configuration/session/source/clock failure fixture starts"); if (!recorder) continue;
         begin(*recorder,false); video(*recorder,0);
         report(*recorder,Track::Video,sr(0,0,1000)); report(*recorder,Track::Video,sr(0,24000,1001));
-        if (kind == 0) { Nal changed = pps; changed.back() ^= 1; check(recorder->video(video_session,0,240,{idr},vps,sps,changed),"changed parameters admitted for worker validation"); }
         if (kind == 1) check(recorder->video(audio_session,0,240,{idr},vps,sps,pps),"changed session admitted for worker validation");
         if (kind == 2) video(*recorder,240,1);
         if (kind == 3) report(*recorder,Track::Video,sr(0,240000,1010));
@@ -904,6 +969,7 @@ int main() {
         audio_only_failures(directory);
         recorded_orientation(directory);
         dynamic_configurations(directory);
+        damaged_video_recovery(directory);
         wrapping_audio_and_first_idr(directory);
         still_video(directory);
         still_video(directory, xdb::media::RecordingMuxer::Format::Mp4);

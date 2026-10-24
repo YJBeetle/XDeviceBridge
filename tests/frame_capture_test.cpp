@@ -46,6 +46,7 @@ struct Script {
     std::mutex mutex;
     std::condition_variable ready;
     std::deque<Bytes> packets;
+    std::deque<Bytes> audio_packets;
     std::vector<Session::Request> starts;
     std::vector<std::pair<Bytes, uint16_t>> sent;
     std::atomic<unsigned> factories{0}, configured{0}, decoded{0}, max_nal_calls{0}, stops{0}, probes{0};
@@ -58,7 +59,7 @@ struct Script {
     std::atomic<bool> recovery_waiting{false};
     void reset() {
         std::lock_guard lock(mutex);
-        packets.clear(); starts.clear(); sent.clear(); fail_next.reset();
+        packets.clear(); audio_packets.clear(); starts.clear(); sent.clear(); fail_next.reset();
         block_recovery = false; recovery_waiting = false;
         factories = configured = decoded = max_nal_calls = stops = probes = 0;
         decoder_available = pixels = false;
@@ -67,7 +68,11 @@ struct Script {
     }
     void enqueue(Bytes packet) {
         { std::lock_guard lock(mutex); packets.push_back(std::move(packet)); }
-        ready.notify_one();
+        ready.notify_all();
+    }
+    void enqueue_audio(Bytes packet) {
+        { std::lock_guard lock(mutex); audio_packets.push_back(std::move(packet)); }
+        ready.notify_all();
     }
     std::size_t start_count() { std::lock_guard lock(mutex); return starts.size(); }
 } script;
@@ -428,11 +433,11 @@ std::unique_ptr<Recorder> recorder_at(const std::filesystem::path& path, std::si
     std::string error; auto recorder = Recorder::start(options, error);
     check(recorder != nullptr && error.empty(), "actual video-only Recorder starts"); return recorder;
 }
-std::unique_ptr<Pump> container_pump(xdb::remote::Device& device, Recorder& recorder) {
-    Pump::Options options; options.recorder = &recorder; options.decode_video = false;
+std::unique_ptr<Pump> container_pump(xdb::remote::Device& device, Recorder& recorder, bool decoded = false) {
+    Pump::Options options; options.recorder = &recorder; options.decode_video = decoded;
     options.stall_restart_ms = 0; options.silence_restart_ms = 0;
     std::string error; auto pump = Pump::start(device, options, error);
-    check(pump != nullptr && error.empty(), "real container consumer starts the encoded-only pump"); return pump;
+    check(pump != nullptr && error.empty(), "real container consumer starts the video pump"); return pump;
 }
 void container_capture(const Directory& directory, bool missing_source) {
     script.reset(); script.local_present = !missing_source;
@@ -522,34 +527,101 @@ void shared_media_stop(const Directory& directory) {
     }
 }
 
-void container_first_errors(const Directory& directory) {
-    for (unsigned scenario = 0; scenario < 3; ++scenario) {
-        script.reset(); xdb::remote::Device device;
-        auto recorder = recorder_at(directory.path / ("error" + std::to_string(scenario) + ".mkv"), scenario == 2 ? 32u : 16u*1024u*1024u);
-        if (!recorder) continue;
-        auto pump = container_pump(device, *recorder); if (!pump) continue;
-        auto sequence = parameters(10);
-        if (scenario == 0) {
-            script.enqueue(rtp(sequence, 0, Bytes{0x28,0x01,0xc0}, true));
-            check(wait([&] { return !recorder->error().empty(); }) && !pump->wait_ready(0),
-                  "invalid IDR header fails Recorder before asynchronous video admission and does not mark readiness");
-        } else {
-            script.enqueue(rtp(sequence++, 0, idr, true));
-            check(pump->wait_ready(2000), "complete IDR health is independent of a later recording error");
-            if (scenario == 1) {
-                ++sequence; script.enqueue(rtp(sequence, 2400, idr, true));
-                check(wait([&] { return recorder->error().find("packet loss") != std::string::npos; }),
-                      "sequence gap retains the existing real Recorder first error");
-            } else {
-                check(wait([&] { return !recorder->error().empty(); }), "bounded real Recorder rejects an over-budget complete AU");
-            }
-        }
-        const auto first = recorder->error(); recorder->fail("later controlled failure");
-        check(!first.empty() && recorder->error() == first && pump->capture_error() == first,
-              "capture error copies the original consumer failure without replacing it");
-        no_decode(*pump); std::string error; (void)pump->finish_recording(error);
-        check(!recorder->finish(error) && error == first, "owner finish preserves the same recording first error");
+void container_loss_recovery(const Directory& directory, bool malformed_idr, bool decoded) {
+    script.reset(); script.decoder_available = script.pixels = decoded;
+    xdb::remote::Device device;
+    const auto path = directory.path / (std::string(decoded ? "decoded-" : "encoded-") +
+        (malformed_idr ? "damaged-idr.mkv" : "packet-gap.mkv"));
+    auto recorder = recorder_at(path); if (!recorder) return;
+    auto pump = container_pump(device, *recorder, decoded); if (!pump) return;
+    auto sequence = parameters(10);
+    script.enqueue(rtp(sequence++,0,idr,true));
+    check(pump->wait_ready(2000), "recording begins with a valid IDR");
+    script.enqueue(sr(0,1000)); script.enqueue(sr(24000,1001));
+    check(wait([&] { return !recorder->awaiting_video_keyframe(); }), "initial IDR passes real worker validation");
+    const auto pli_before = pump->stats().pli_sent;
+    auto before = pump->stats().aus;
+    if (malformed_idr) {
+        script.enqueue(rtp(sequence++,2400,Bytes{0x28,0x01,0xc0},true));
+    } else {
+        ++sequence;
+        script.enqueue(rtp(sequence++,2400,Bytes{0x02,0x01,0x80,0x00},true));
     }
+    check(wait([&] { return pump->stats().aus > before && recorder->awaiting_video_keyframe(); }) &&
+          recorder->error().empty(), "damaged video requests recovery without a terminal recording error");
+    check(wait([&] { return pump->stats().pli_sent > pli_before; }),
+          "worker validation and RTP loss both request a fresh IDR");
+    before = pump->stats().aus;
+    script.enqueue(rtp(sequence++,4800,Bytes{0x02,0x01,0x80,0x00},true));
+    check(wait([&] { return pump->stats().aus > before; }) && recorder->awaiting_video_keyframe(),
+          "dependent video does not restore recording or enter the container");
+    script.enqueue(rtp(sequence++,7200,idr,true));
+    check(wait([&] { return !recorder->awaiting_video_keyframe(); }) && pump->wait_ready(2000) && recorder->error().empty(),
+          "a checked IDR restores recording in the same session");
+    std::string error;
+    check(pump->finish_recording(error) && recorder->finish(error) && error.empty(),
+          "real RTP loss recovery finalizes a successful container");
+    AVFormatContext* input = nullptr;
+    check(avformat_open_input(&input,path.string().c_str(),nullptr,nullptr) >= 0,
+          "recovered RTP capture is a readable container");
+    if (!input) return;
+    AVPacket* packet = av_packet_alloc(); std::vector<int64_t> pts;
+    if (packet) while (av_read_frame(input,packet) >= 0) {
+        pts.push_back(av_rescale_q(packet->pts,input->streams[packet->stream_index]->time_base,AVRational{1,1000000}));
+        av_packet_unref(packet);
+    }
+    check(pts == std::vector<int64_t>{0,300000}, "RTP recovery keeps only intact IDRs and preserves the source time gap");
+    av_packet_free(&packet); avformat_close_input(&input);
+}
+
+void container_first_errors(const Directory& directory) {
+    script.reset(); xdb::remote::Device device;
+    auto recorder = recorder_at(directory.path / "budget-error.mkv",1024u);
+    if (!recorder) return;
+    auto pump = container_pump(device, *recorder); if (!pump) return;
+    auto sequence = parameters(10);
+    for (unsigned i = 0; i < 64; ++i) script.enqueue(rtp(sequence++,i*2400,idr,true));
+    check(wait([&] { return !recorder->error().empty(); }), "shared queue exhaustion still ends recording");
+    const auto first = recorder->error(); recorder->fail("later controlled failure");
+    check(!first.empty() && recorder->error() == first && pump->capture_error() == first,
+          "capture error copies the original consumer failure without replacing it");
+    no_decode(*pump); std::string error; (void)pump->finish_recording(error);
+    check(!recorder->finish(error) && error == first, "owner finish preserves the same recording first error");
+}
+
+void audio_loss_recording(const Directory& directory) {
+    script.reset(); xdb::remote::Device device;
+    const auto path = directory.path / "audio-loss.mkv";
+    Recorder::Options options; options.path = path.string();
+    options.include_video = false; options.include_audio = true;
+    std::string error; auto recorder = Recorder::start(options,error);
+    check(recorder != nullptr,"audio loss recorder starts"); if (!recorder) return;
+    xdb::media::AudioPump::Options audio_options;
+    audio_options.decode_pcm = false; audio_options.recorder = recorder.get();
+    auto pump = xdb::media::AudioPump::start(device,audio_options,error);
+    check(pump != nullptr,"actual AudioPump starts without PCM decoding"); if (!pump) return;
+    const Bytes silence{0x00,0x68,0x34,0x00};
+    script.enqueue_audio(rtp(10,0,silence,true));
+    script.enqueue_audio(sr(0,1000)); script.enqueue_audio(sr(48000,1001));
+    script.enqueue_audio(rtp(12,960,silence,true));
+    script.enqueue_audio(rtp(13,1440,silence,true));
+    check(wait([&] { return pump->stats().packets == 3 && pump->stats().other_payload == 2; }),
+          "actual audio pump observes packets and trusted reports across a sequence gap");
+    check(pump->stats().seq_gaps == 1 && recorder->error().empty(),
+          "audio packet loss is counted without sealing recording");
+    pump.reset();
+    check(recorder->finish(error) && error.empty(),"audio gap recording finishes successfully");
+    AVFormatContext* input = nullptr;
+    check(avformat_open_input(&input,path.string().c_str(),nullptr,nullptr) >= 0,
+          "audio gap recording demuxes successfully");
+    if (!input) return;
+    AVPacket* packet = av_packet_alloc(); std::vector<int64_t> pts;
+    if (packet) while (av_read_frame(input,packet) >= 0) {
+        pts.push_back(av_rescale_q(packet->pts,input->streams[packet->stream_index]->time_base,AVRational{1,1000000}));
+        av_packet_unref(packet);
+    }
+    check(pts == std::vector<int64_t>{0,20000,30000},"audio recording retains the missing packet's time interval");
+    av_packet_free(&packet); avformat_close_input(&input);
 }
 #endif
 } // namespace
@@ -599,10 +671,15 @@ bool StreamSession::next_packet(Bytes& packet, int timeout, std::string& error) 
     }
     packet = std::move(script.packets.front()); script.packets.pop_front(); error.clear(); return true;
 }
-bool StreamSession::next_packet(Bytes&, uint16_t& peer, int timeout, std::string& error) {
-    // The audio leg stays idle in the shared-stop fixtures; only the video leg consumes scripted packets.
-    peer = 24680; std::this_thread::sleep_for(std::chrono::milliseconds(std::min(timeout, 5)));
-    error = "controlled audio timeout"; return false;
+bool StreamSession::next_packet(Bytes& packet, uint16_t& peer, int timeout, std::string& error) {
+    peer = 24680;
+    std::unique_lock lock(script.mutex);
+    if (!script.ready.wait_for(lock,std::chrono::milliseconds(std::min(timeout,5)),
+            [] { return !script.audio_packets.empty(); })) {
+        error = "controlled audio timeout"; return false;
+    }
+    packet = std::move(script.audio_packets.front()); script.audio_packets.pop_front();
+    error.clear(); return true;
 }
 bool StreamSession::send_rtp(const Bytes& payload, uint16_t port, std::string& error) {
     std::lock_guard lock(script.mutex); script.sent.emplace_back(payload, port);
@@ -624,6 +701,10 @@ int main() {
         epoch_and_terminal(directory, false); epoch_and_terminal(directory, true);
 #ifdef XDB_HAVE_LIBAVFORMAT
         container_capture(directory, false); container_capture(directory, true); shared_media_stop(directory); container_first_errors(directory);
+        for (const bool decoded : {false,true}) {
+            container_loss_recovery(directory,false,decoded); container_loss_recovery(directory,true,decoded);
+        }
+        audio_loss_recording(directory);
 #else
         std::puts("SKIP: container capture requires libavformat; actual raw loop and syntax checks ran");
 #endif

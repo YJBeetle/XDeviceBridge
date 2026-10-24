@@ -210,7 +210,7 @@ private:
     struct WorkerState;
     void loop();
     void request_keyframe(std::optional<uint32_t> media_source);
-    void record_access_unit(const AnnexBParser::AccessUnit &, std::optional<uint32_t> media_source,
+    bool record_access_unit(const AnnexBParser::AccessUnit &, std::optional<uint32_t> media_source,
         const Nal &vps, const Nal &sps, const Nal &pps);
     void process_encoded_unit(const AnnexBParser::AccessUnit &, WorkerState &,
         std::optional<uint32_t> media_source, const Nal &vps, const Nal &sps, const Nal &pps);

@@ -420,10 +420,20 @@ silently using the numeric fallback. No automatic rotation/reencoding/letterboxi
 
 Configuration does not start the media tracks. Start selected video/audio producers
 next, then call media.finish to flush/finalize. Container tracks remain original
-encoded HEVC/AAC-ELD; IPC BGRA/PCM is not reencoded. Paths can create/truncate files
+encoded HEVC/AAC-ELD; IPC BGRA/PCM is not reencoded. Output files are created exclusively
 when the recorder opens output; do not silently retry a failed mutation on the same
 path assuming atomic rollback. Decoding and transport can continue after a
 recording failure; inspect recording_error and finish explicitly.
+
+Within the same session, video packet loss, malformed or oversized access units
+are discarded. Recording skips dependent pictures until a valid HEVC IDR with
+supported parameters arrives; audio continues meanwhile. Audio packet loss skips
+the missing packets. Original timestamps are retained, so gaps are not compressed
+or filled with synthetic media; players may hold the last video picture.
+Recoverable drops do not set recording_error. Session/source changes, unsupported
+codec configurations, invalid clocks, shared queue exhaustion and file I/O errors
+still end the recording. If no usable initial media/clock arrives within the
+startup budget, recording startup still fails.
 
 ### `media.status`
 

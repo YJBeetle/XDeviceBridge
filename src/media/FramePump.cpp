@@ -347,7 +347,7 @@ void FramePump::request_keyframe(std::optional<uint32_t> media_source) {
     }
 }
 
-void FramePump::record_access_unit(const AnnexBParser::AccessUnit &unit, std::optional<uint32_t> media_source,
+bool FramePump::record_access_unit(const AnnexBParser::AccessUnit &unit, std::optional<uint32_t> media_source,
     const Nal &vps, const Nal &sps, const Nal &pps) {
     if (options_.recorder != nullptr) {
         // 容器接收完整原始 AU，不继承显示后端的尺寸、丢帧或恢复门限。
@@ -355,10 +355,18 @@ void FramePump::record_access_unit(const AnnexBParser::AccessUnit &unit, std::op
         if (!media_source || !unit.sampling_timestamp) {
             options_.recorder->fail("Complete video access unit has no bound sampling timestamp");
         } else {
-            (void)options_.recorder->video(session_->started().session_uuid, *media_source,
-                *unit.sampling_timestamp, unit.nals, vps, sps, pps);
+            if (!options_.recorder->video(session_->started().session_uuid, *media_source,
+                    *unit.sampling_timestamp, unit.nals, vps, sps, pps)) {
+                if (options_.recorder->error().empty()) {
+                    need_keyframe_ = true;
+                    awaiting_idr_from_loss_ = true;
+                    request_keyframe(media_source);
+                    return false;
+                }
+            }
         }
     }
+    return true;
 }
 
 void FramePump::process_encoded_unit(const AnnexBParser::AccessUnit &unit, WorkerState &state,
@@ -407,11 +415,14 @@ void FramePump::process_encoded_unit(const AnnexBParser::AccessUnit &unit, Worke
     }
     if (syntax.valid() && options_.recorder != nullptr &&
         !state.encoded_config->permits_equal_dts_pts()) {
-        syntax.status = RecordingIdrSyntax::Status::Invalid;
+        syntax.status = RecordingIdrSyntax::Status::Unsupported;
         syntax.error = "Recording HEVC requires a no-reorder configuration";
     }
     if (!syntax.valid()) {
-        if (options_.recorder != nullptr) options_.recorder->fail(syntax.error);
+        if (options_.recorder != nullptr) {
+            if (syntax.status == RecordingIdrSyntax::Status::Unsupported) options_.recorder->fail(syntax.error);
+            else options_.recorder->video_discontinuity();
+        }
         need_keyframe_ = true;
         awaiting_idr_from_loss_ = true;
         { std::lock_guard<std::mutex> lock(mutex_);
@@ -430,7 +441,7 @@ void FramePump::process_encoded_unit(const AnnexBParser::AccessUnit &unit, Worke
         }
         return;
     }
-    record_access_unit(unit, media_source, vps, sps, pps);
+    if (!record_access_unit(unit, media_source, vps, sps, pps)) return;
     need_keyframe_ = false;
     awaiting_idr_from_loss_ = false;
     first_pli_ms_ = 0;
@@ -687,7 +698,7 @@ void FramePump::loop() {
         }
         loss_seen_ = loss_now;
         if (options_.recorder != nullptr) {
-            options_.recorder->fail("Video packet loss or damaged payload ended container recording");
+            options_.recorder->video_discontinuity();
         }
         if (!need_keyframe_) {
             // 仅在进入关键帧等待状态时输出一次。
@@ -835,6 +846,9 @@ void FramePump::loop() {
                 return;
             }
             continue;
+        }
+        if (options_.recorder != nullptr && options_.recorder->awaiting_video_keyframe()) {
+            request_keyframe(media_source);
         }
         // 每秒发送 RR，延长设备 RTCPTimeoutInterval 定义的空闲租期。
         // 调度置于每轮循环，不能依赖读包超时，否则连续视频包会阻止发送。
@@ -1098,7 +1112,7 @@ void FramePump::loop() {
             }
             if (!parser_->push_nal(std::move(nal.bytes), timestamp, nal.ends_access_unit)) {
                 if (options_.recorder != nullptr) {
-                    options_.recorder->fail("Video access-unit input became inconsistent");
+                    options_.recorder->video_discontinuity();
                 }
                 if (!need_keyframe_) {
                     std::fputs("Video access-unit input is inconsistent; discarding the access unit and requesting a keyframe.\n", stderr);

@@ -57,6 +57,8 @@ public:
     /// （19/20）之前不录其它 AU，仅保留媒体参考；同会话内参数变化须通过
     /// 无重排配置与完整 IDR 语法检查，带内写入新原始参数，不重新编码像素。
     /// 容器 header 保留首配置；来源、会话不能变化，展开的 ticks 严格递增。
+    /// 损坏或超过单包上限的 AU 返回 false 并等待新 IDR，不设置终止错误。
+    /// true 只表示入队；worker 仍会丢弃坏 IDR 或恢复前的依赖帧。
     [[nodiscard]] bool video(std::span<const uint8_t> session, uint32_t source, int64_t ticks,
                               const std::vector<Nal>& nals,
                               const Nal& vps, const Nal& sps, const Nal& pps);
@@ -65,8 +67,13 @@ public:
     [[nodiscard]] bool sender_report(Track, std::span<const uint8_t> session,
                                       const rt::SenderReport&);
 
+    /// 同一会话内确认视频缺片/损坏：后续视频等待有效 IDR，音频与原时钟继续。
+    /// 不分配队列项；标记随下一个视频输入按序交给 worker，重复通知可合并。
+    void video_discontinuity();
+    /// worker 校验也可能丢弃 AU；供视频泵沿既有节流路径请求恢复 IDR。
+    [[nodiscard]] bool awaiting_video_keyframe() const;
     /// 不入编码队列，立即锁存首错并封闭入口；已开始的写入尽力完成/收尾。
-    /// foreign 数据应由泵过滤；确认缺片、重建、参数/时钟异常则结束整个录制。
+    /// foreign 数据应由泵过滤；重建、无法支持的配置及不可恢复的时钟/I/O 异常结束录制。
     void fail(std::string_view reason);
     /// 入口 bool 仅表示完成有界复制和 admission，不表示已写入；异步错误在此读取。
     [[nodiscard]] std::string error() const;

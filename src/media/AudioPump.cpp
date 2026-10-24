@@ -609,10 +609,8 @@ void AudioPump::loop() {
         if (verdict == xdb::rt::RtpSeq::Verdict::kLate) {
             continue;
         }
-        if (verdict == xdb::rt::RtpSeq::Verdict::kGap && options_.recorder != nullptr) {
-            options_.recorder->fail("Audio packet loss ended container recording");
-        }
         // 当前 ELD 每包承载一帧（10 ms），不做重组或重传，只统计序号缺口。
+        // 录制保留后续包的原始时间戳，缺失区间不补包、不压缩，也不终止其它轨道。
         const auto payload = std::span<const uint8_t>(datagram).subspan(
             info.payload_offset, info.payload_size);
         if (options_.recorder != nullptr) {
