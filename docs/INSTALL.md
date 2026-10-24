@@ -5,8 +5,8 @@ English | [简体中文](INSTALL_zh.md)
 ## Desktop runtime packages
 
 Download the runtime archive for your operating system and CPU from
-[GitHub Releases](https://github.com/scrctl/XDeviceBridge/releases). Before the
-first release, use a successful [packages workflow run](https://github.com/scrctl/XDeviceBridge/actions/workflows/packages.yml):
+[GitHub Releases](https://github.com/scrctl/XDeviceBridge/releases). For development
+snapshots, use a successful [packages workflow run](https://github.com/scrctl/XDeviceBridge/actions/workflows/packages.yml):
 open its Artifacts section, download the matching `xdb-<OS>-<ARCH>` artifact,
 then extract the runtime archive inside it. Workflow artifacts expire and GitHub
 requires sign-in to download them. Developer ID signed macOS development packages

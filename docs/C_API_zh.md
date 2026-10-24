@@ -1,8 +1,8 @@
-# XDB C SDK 参考——1.0 准备稿
+# XDB C SDK 参考——1.0
 
 [English](C_API.md) | 简体中文
 
-导出头文件为 [xdb.h](../include/xdb/xdb.h)。本文描述当前实现；是否冻结 API 仍由发布决策确定。
+导出头文件为 [xdb.h](../include/xdb/xdb.h)。本文定义 XDB 1.0 已发布的 C ABI 1 接口约定。
 RPC 参数和结果见 [API_zh.md](API_zh.md)，分帧和版本策略见 [PROTOCOL_zh.md](PROTOCOL_zh.md)。
 `client.hpp` 是可选的源码级 C++ 便利适配器；nlohmann-json 和 C++ 对象均不跨越 C 二进制边界。
 

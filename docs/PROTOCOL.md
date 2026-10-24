@@ -1,4 +1,4 @@
-# xdb local protocol (experimental version 1)
+# xdb local protocol (version 1)
 
 English | [简体中文](PROTOCOL_zh.md)
 
@@ -12,12 +12,12 @@ individual local clients.
 
 ## Version and upgrade policy
 
-The package version (currently 0.1.0), C ABI and wire protocol are separate contracts.
+The package version (1.0.0), C ABI (1) and wire protocol (1) are separate contracts.
 The protocol number in the frame header and `hello.params.protocol` must both be 1.
 A package version mismatch alone is not a reason to kill or replace a server.
 
-The compatibility commitments apply to published releases; unreleased development
-snapshots may be revised before the public baseline is frozen.
+XDB 1.0 establishes the documented C ABI 1 and wire protocol 1 baseline.
+The compatibility commitments apply to published releases, not unreleased development snapshots.
 
 Within protocol 1:
 
@@ -38,8 +38,8 @@ Existing exported entry points keep their signatures within the published ABI;
 new entry points are additive and consumers must check optional symbols. Protocol
 compatibility does not imply an Apple device supports a requested feature.
 
-`0.x` signals that new protocol/ABI generations may be introduced before 1.0;
-such breaks still require an explicit protocol change and migration notes. Users
+Incompatible C ABI changes require a new ABI major and shared-library SOVERSION;
+incompatible wire changes require a new protocol number and migration notes. Users
 should ship a tested client/server combination, and keep older packages available
 for rollback. Pairing data is retained during installation; any future incompatible
 on-disk migration must preserve the prior records or offer an explicit export path.

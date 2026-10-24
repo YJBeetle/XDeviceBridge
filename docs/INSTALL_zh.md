@@ -5,7 +5,7 @@
 ## 桌面运行包
 
 从 [GitHub Releases](https://github.com/scrctl/XDeviceBridge/releases) 下载适合操作系统和 CPU 架构的运行包。
-首个版本发布前，可打开成功的 [packages 工作流](https://github.com/scrctl/XDeviceBridge/actions/workflows/packages.yml)，
+需要开发快照时，可打开成功的 [packages 工作流](https://github.com/scrctl/XDeviceBridge/actions/workflows/packages.yml)，
 在 Artifacts 中下载对应的 `xdb-<OS>-<ARCH>`，再解压其中的运行包。工作流附件会过期，下载需要登录 GitHub。
 开发阶段的 macOS 公证包见[公证工作流](https://github.com/scrctl/XDeviceBridge/actions/workflows/macos-notarize.yml)的
 `xdb-macos-notarized` 附件。独立的 `*-sources` 包包含对应源码和构建信息，

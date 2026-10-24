@@ -1,10 +1,10 @@
-# XDB API reference — 1.0 preparation
+# XDB API reference — 1.0
 
 English | [简体中文](API_zh.md)
 
-This document describes the current implementation, checked against `xdb.h`,
-`Client.cpp`, `Server.cpp`, `Backend.cpp` and `Discovery.h`. It is the reviewable
-baseline for 1.0, **not a declaration that 1.0 has shipped or the API is frozen**.
+This document defines the public RPC contract for XDB 1.0, checked against `xdb.h`,
+`Client.cpp`, `Server.cpp`, `Backend.cpp` and `Discovery.h`. Published releases
+follow the protocol 1 compatibility policy.
 [Wire framing and compatibility](PROTOCOL.md), [installation](INSTALL.md),
 [device validation evidence](VALIDATION.md), [C SDK reference](C_API.md).
 

@@ -6,9 +6,10 @@
 截图、视频取帧和输入控制。已实现的服务不需要越狱、WebDriverAgent 或在手机上
 安装自动化应用。
 
-**仍处于早期开发阶段：** 协议和 API 尚未稳定。初始实现经过本机 macOS 测试和
-Android 交叉编译检查，但不代表稳定版本。scrctl 和 MaaFramework 使用轻量客户端，
-设备服务运行在 xdb Server 中。具体测试范围见[验证说明](docs/VALIDATION.md)。
+1.0 将公开 C SDK（ABI 1）和本机 RPC 协议 1 确立为稳定接入基线。
+scrctl 和 MaaFramework 使用轻量客户端，设备服务运行在 xdb Server 中。
+机型与系统支持仍取决于具体服务；测试范围见[验证说明](docs/VALIDATION.md)，
+版本变化见[变更记录](CHANGELOG.md)。
 
 ## 架构
 
@@ -75,9 +76,9 @@ cmake --build build-client
 NDK 和内嵌服务端的接入方式见 [Android 集成说明](docs/ANDROID_zh.md)。
 C ABI 定义位于 [xdb.h](include/xdb/xdb.h)，通信协议见[通信协议说明](docs/PROTOCOL_zh.md)。
 
-面向 1.0 的完整参考见 [RPC API](docs/API_zh.md) 与 [C SDK](docs/C_API_zh.md)，
+1.0 的完整接口约定见 [RPC API](docs/API_zh.md) 与 [C SDK](docs/C_API_zh.md)，
 包括字段、默认值、错误码、状态前提、内存所有权、并发取消规则和示例。
-这是待评审的接口基线，尚未宣称 1.0 已发布或接口已冻结。
+已发布版本遵守[兼容性策略](docs/PROTOCOL_zh.md#版本与升级策略)。
 
 通过 `add_subdirectory` 嵌入时默认不下载依赖。调用方可提供
 `nlohmann_json::nlohmann_json`（>= 3.12.0）、已安装依赖或本地 FetchContent 源码覆盖；

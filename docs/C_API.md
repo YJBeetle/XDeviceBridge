@@ -1,9 +1,9 @@
-# XDB C SDK reference — 1.0 preparation
+# XDB C SDK reference — 1.0
 
 English | [简体中文](C_API_zh.md)
 
-The exported header is [xdb.h](../include/xdb/xdb.h). This reference describes its
-current implementation; API freeze is still a release decision. RPC parameters
+The exported header is [xdb.h](../include/xdb/xdb.h). This reference defines the
+published C ABI 1 contract for XDB 1.0. RPC parameters
 and results are specified in [API.md](API.md), framing/version policy in
 [PROTOCOL.md](PROTOCOL.md). `client.hpp` is an optional source-level C++ convenience
 adapter; neither nlohmann-json nor C++ objects cross the binary C boundary.

@@ -6,10 +6,10 @@ A cross-platform library and command-line bridge for iPhone/iPad device discover
 pairing, developer-image preparation, capture and input. No jailbreak, WebDriverAgent
 or on-device automation application is required for the implemented services.
 
-**Early development:** the protocol and API are experimental. This first import
-has local macOS tests and Android cross-build checks; it is not a stable release.
-scrctl and MaaFramework use the lightweight client; device services run in xdb Server.
-See [validation boundaries](docs/VALIDATION.md) for tested behavior.
+Version 1.0 establishes the public C SDK (ABI 1) and local RPC protocol 1 as the
+stable integration baseline. scrctl and MaaFramework use the lightweight client;
+device services run in xdb Server. Device and OS support remains service-dependent;
+see the [validation boundaries](docs/VALIDATION.md) and [changelog](CHANGELOG.md).
 
 ## Architecture
 
@@ -69,8 +69,9 @@ See [Android integration](docs/ANDROID.md) for the NDK and embedded-server model
 The C ABI is in [xdb.h](include/xdb/xdb.h); the wire protocol is documented in
 [PROTOCOL.md](docs/PROTOCOL.md).
 
-The 1.0 preparation reference is [RPC API](docs/API.md) and [C SDK](docs/C_API.md),
-including defaults, errors, states, lifetimes and examples. The baseline is not yet frozen.
+The 1.0 contract is documented in [RPC API](docs/API.md) and [C SDK](docs/C_API.md),
+including defaults, errors, states, lifetimes and examples. Published releases
+follow the [compatibility policy](docs/PROTOCOL.md#version-and-upgrade-policy).
 
 When built via `add_subdirectory`, dependency downloading defaults to OFF. Supply
 `nlohmann_json::nlohmann_json` (>= 3.12.0), installed dependency packages or local
