@@ -82,9 +82,13 @@ Value read_value(pugi::xml_node node, int depth) {
         size_t end = 0;
         Value out;
         if (name == "integer") {
-            if (number.front() == '-') out = Value::Int(std::stoll(number, &end, 0));
+            // XML plist 允许显式 0x 十六进制，普通前导零仍是十进制，不是 C 八进制。
+            const size_t prefix = number.front() == '-' || number.front() == '+' ? 1 : 0;
+            const int base = number.size() > prefix + 2 && number[prefix] == '0' &&
+                (number[prefix + 1] == 'x' || number[prefix + 1] == 'X') ? 16 : 10;
+            if (number.front() == '-') out = Value::Int(std::stoll(number, &end, base));
             else {
-                const auto value = std::stoull(number, &end, 0);
+                const auto value = std::stoull(number, &end, base);
                 out = value <= static_cast<uint64_t>(INT64_MAX)
                     ? Value::Int(static_cast<int64_t>(value)) : Value::UInt(value);
             }

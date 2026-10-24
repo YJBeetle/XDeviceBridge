@@ -148,6 +148,16 @@ void test_edge_cases() {
 
     auto e3 = xdb::plist::parse("<plist><integer> 0x1F </integer></plist>");
     check(e3.has_value() && e3->as_int_or(0) == 31, "integer 支持 0x 形式与空白");
+    const struct { const char* text; int64_t expected; } integers[] = {
+        {"010",10}, {"08",8}, {"-010",-10}, {"+010",10},
+        {"0X10",16}, {"-0x10",-16}, {"+0X10",16}, {"000",0},
+        {"-09223372036854775808",INT64_MIN},
+    };
+    for (const auto& sample : integers) {
+        const auto value = xdb::plist::parse(std::string("<plist><integer>") + sample.text + "</integer></plist>");
+        check(value && value->as_int_or(0) == sample.expected,
+              std::string("integer 保留显式十六进制，其余前导零按十进制：") + sample.text);
+    }
     for (const auto *number : {"9223372036854775808", "18446744073709551615", "0xffffffffffffffff"}) {
         auto value = xdb::plist::parse(std::string("<plist><integer>") + number + "</integer></plist>");
         auto back = value ? xdb::plist::parse(xdb::plist::write(*value)) : std::nullopt;
