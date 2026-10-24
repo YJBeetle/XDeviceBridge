@@ -450,6 +450,29 @@ void test_opack() {
     Bytes truncated(nested.begin(), nested.end() - 5);
     xdb::wifi::OpackValue t;
     check(!xdb::wifi::opack_decode(truncated, t, err), "截断的 OPACK 要报错，不能解出半截");
+    for (const auto &input : {Bytes{0xef, 0x03}, Bytes{0xef, 0x03, 0x01},
+                              Bytes{0xd2, 0xef, 0x03, 0x01, 0x02}}) {
+        xdb::wifi::OpackValue value; std::string error;
+        check(!xdb::wifi::opack_decode(input, value, error) &&
+                  error == "OPACK decode: missing second dictionary terminator",
+              "truncated or malformed dictionary terminator is rejected without swallowing another value or underflowing");
+    }
+    xdb::wifi::OpackValue terminated;
+    terminated.kind = xdb::wifi::OpackValue::Kind::kDict;
+    for (int i = 0; i < 15; ++i)
+        terminated.dict.emplace_back(xdb::wifi::OpackValue::of_string(std::to_string(i)),
+                                     xdb::wifi::OpackValue::of_string("value"));
+    Bytes terminated_bytes; std::string terminated_error;
+    check(xdb::wifi::opack_encode(terminated, terminated_bytes, terminated_error) &&
+              terminated_bytes.front() == 0xef && terminated_bytes[terminated_bytes.size() - 2] == 0x03 &&
+              terminated_bytes.back() == 0x03,
+          "fifteen-entry dictionary retains the existing double-terminator encoding");
+    terminated_bytes.insert(terminated_bytes.begin(), 0xd2);
+    terminated_bytes.push_back(0x01);
+    xdb::wifi::OpackValue container;
+    check(xdb::wifi::opack_decode(terminated_bytes, container, terminated_error) &&
+              container.list.size() == 2 && container.list[0].dict.size() == 15 && container.list[1].boolean,
+          "valid terminated dictionary inside an array does not consume the following value");
     // 只经公开 API 验证长度边界，格式错误应返回 false 和错误信息，而非抛出异常。
     const auto reject_length = [](const Bytes &input, const char *what) {
         xdb::wifi::OpackValue value;

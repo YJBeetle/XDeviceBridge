@@ -276,7 +276,11 @@ bool decode_one(const Bytes &in, size_t &pos, OpackValue &out, std::string &err,
                     err = "OPACK decode: terminator in fixed-length dictionary";
                     return false;
                 }
-                pos += 2;  // 当前适配按键和值各一个终止符推进
+                if (in.size() - pos < 2 || in[pos + 1] != kTerminator) {
+                    err = "OPACK decode: missing second dictionary terminator";
+                    return false;
+                }
+                pos += 2;
                 return true;
             }
             OpackValue k;
