@@ -53,9 +53,12 @@ struct Script {
     bool local_present = true, send_ok = true;
     uint32_t local = 0;
     std::optional<Session::StartStatus> fail_next;
+    bool block_recovery = false;
+    std::atomic<bool> recovery_waiting{false};
     void reset() {
         std::lock_guard lock(mutex);
         packets.clear(); starts.clear(); sent.clear(); fail_next.reset();
+        block_recovery = false; recovery_waiting = false;
         factories = configured = decoded = max_nal_calls = stops = probes = 0;
         decoder_available = pixels = false;
         platform_limit = ~std::size_t{0};
@@ -324,6 +327,25 @@ void loss_and_validation(const Directory& directory) {
           "failed candidates retain PLI and recovery accounting");
     no_decode(*pump); std::string error; check(pump->finish_recording(error), "validation raw producer stops and joins");
 }
+void stop_during_recovery(const Directory& directory) {
+    script.reset();
+    { std::lock_guard lock(script.mutex); script.block_recovery = true; }
+    xdb::remote::Device device;
+    auto pump = raw_pump(device, directory, "cancel-recovery.hevc", 20);
+    if (!pump) return;
+    auto sequence = parameters(100);
+    script.enqueue(rtp(sequence++, 0, idr, true));
+    check(pump->wait_ready(2000), "cancellation fixture reaches its first real IDR");
+    ++sequence;
+    script.enqueue(rtp(sequence, 2400, Bytes{0x02,0x01,0x80,0x00}, true));
+    check(wait([] { return script.recovery_waiting.load(); }), "sequence loss enters a pending recovery start");
+    const auto before = std::chrono::steady_clock::now();
+    std::string error;
+    (void)pump->finish_recording(error);
+    check(std::chrono::steady_clock::now() - before < 1s,
+          "stop cancels the pending start before joining instead of waiting for its reply timeout");
+}
+
 void raw_file_failure(const Directory& directory) {
 #ifndef _WIN32
     struct rlimit previous{};
@@ -502,7 +524,13 @@ std::unique_ptr<Decoder> create_platform_decoder() {
 namespace xdb::media {
 std::unique_ptr<StreamSession> StreamSession::start(remote::Device&, const Request& request,
         std::string& error, bool, remote::ServiceConnection*, StartStatus* status) {
-    std::lock_guard lock(script.mutex); script.starts.push_back(request);
+    std::unique_lock lock(script.mutex); script.starts.push_back(request);
+    if (script.block_recovery && script.starts.size() > 1) {
+        std::stop_callback notify(request.cancel, [] { script.ready.notify_all(); });
+        script.recovery_waiting = true;
+        script.ready.wait_for(lock, 5s, [&] { return request.cancel.stop_requested(); });
+        error = "controlled start cancelled"; return nullptr;
+    }
     if (script.fail_next) {
         if (status) *status = *script.fail_next;
         script.fail_next.reset(); error = "controlled video negotiation failure"; return nullptr;
@@ -527,8 +555,8 @@ bool StreamSession::send_rtp(const Bytes& payload, uint16_t port, std::string& e
     std::lock_guard lock(script.mutex); script.sent.emplace_back(payload, port);
     error = script.send_ok ? "" : "controlled send failure"; return script.send_ok;
 }
-bool StreamSession::stop(remote::Device&, std::string& error, bool) const { ++script.stops; error.clear(); return true; }
-StreamSession::ServerState StreamSession::probe(remote::Device&, const Bytes&, std::string& error, bool) {
+bool StreamSession::stop(remote::Device&, std::string& error, bool, std::stop_token) const { ++script.stops; error.clear(); return true; }
+StreamSession::ServerState StreamSession::probe(remote::Device&, const Bytes&, std::string& error, bool, std::stop_token) {
     ++script.probes; error.clear(); return ServerState::Alive;
 }
 } // namespace xdb::media
@@ -538,6 +566,7 @@ int main() {
     startup_and_default(directory, available);
     decoded_software_fallback();
     if (available) {
+        stop_during_recovery(directory);
         healthy_static_capture(directory); loss_and_validation(directory); alive_without_idr(directory); raw_file_failure(directory);
         epoch_and_terminal(directory, false); epoch_and_terminal(directory, true);
 #ifdef XDB_HAVE_LIBAVFORMAT

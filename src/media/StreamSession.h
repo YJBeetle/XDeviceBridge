@@ -4,6 +4,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <stop_token>
 #include <vector>
 
 #include "media/MediaOffer.h"
@@ -20,6 +21,8 @@ namespace xdb::media {
 class StreamSession {
 public:
     struct Request {
+        /// 中断本次起流的建连/回复等待，不关闭 Device 的其他服务。
+        std::stop_token cancel;
         uint16_t receiver_port = 0;  ///< 0 表示从 49152..65151 中随机选择端口，随后尝试绑定。
         /// 视频目标的显示器 ID；音频请求不携带显示器 options。
         uint32_t display_id = 1;
@@ -140,11 +143,12 @@ public:
     bool send_rtp(const std::vector<uint8_t> &payload, uint16_t peer_port, std::string &err);
 
     /// 通过新服务连接发送 stopmediastream，当前入参固定为 stopAll: XPC Bool true。
+    /// 建连及回复共用两秒清理预算，超时依赖设备 RTCP 租期回收。
     /// 该操作停止设备上所有媒体会话，包括音频和视频，不只停止本对象对应的会话。
     /// 已测设备要求 stopAll 为 Bool；回复 stoppedStreams 中的编号对应 offer 的
     /// u32 session_id，而非 ClientSessionID UUID。复用起流连接发送 stop 曾导致设备服务异常。
     /// 参数形状与作用范围见 [CoreDevice §13](../../docs/coredevice.md#13-停流关键帧请求与恢复实测)。
-    bool stop(xdb::remote::Device &device, std::string &err, bool verbose = false) const;
+    bool stop(xdb::remote::Device &device, std::string &err, bool verbose = false, std::stop_token cancel = {}) const;
 
     [[nodiscard]] uint16_t receiver_port() const;
     [[nodiscard]] const Started &started() const { return started_; }
@@ -165,12 +169,12 @@ public:
     /// 多个媒体流共用 UUID 时只能判断该组是否仍有会话，不能确定某条流的存活状态。
     [[nodiscard]] static ServerState probe(remote::Device &device,
                                            const std::vector<uint8_t> &session_uuid,
-                                           std::string &err, bool verbose = false);
+                                           std::string &err, bool verbose = false, std::stop_token cancel = {});
 
     /// 通过新连接返回 getmediastreamserverstatus 的完整输出，失败时返回 Null。
     /// 除会话匹配外，回复中的设备计数器可用于检查 RTCP 是否实际到达等传输问题。
     [[nodiscard]] static xdb::xpc::Value status(remote::Device &device, std::string &err,
-                                                   bool verbose = false);
+                                                   bool verbose = false, std::stop_token cancel = {});
 
 private:
     StreamSession(std::unique_ptr<xdb::net::UdpSocket> sock, Started started)

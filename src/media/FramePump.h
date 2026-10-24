@@ -10,6 +10,7 @@
 #include <span>
 #include <string>
 #include <thread>
+#include <stop_token>
 #include <vector>
 
 #include "decode/Decoder.h"
@@ -226,6 +227,7 @@ private:
 
     std::unique_ptr<StreamSession> session_;
     std::thread worker_;
+    std::stop_source stop_source_;
     bool worker_running_ = false;
     /// 仅由启动线程/worker 访问；已接受但不可用的答复使本泵停止重试及续期。
     bool negotiation_invalid_ = false;

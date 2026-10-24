@@ -185,6 +185,7 @@ bool AudioPump::start_session(std::string &err) {
     }
 
     StreamSession::Request request;
+    request.cancel = stop_source_.get_token();
     request.audio = true;
     request.offer.audio_dup = options_.audio_dup;
     request.timeout_seconds = options_.lease_seconds;
@@ -253,6 +254,7 @@ void AudioPump::clear_live() {
 
 void AudioPump::stop_receiving() {
     stopping_.store(true);
+    stop_source_.request_stop();
     if (worker_.joinable()) {
         worker_.join();
     }
@@ -505,7 +507,7 @@ void AudioPump::loop() {
             last_probe_ms = now;
             std::string perr;
             const auto state = StreamSession::probe(device_, session_->started().session_uuid,
-                                                    perr, verbose_);
+                                                    perr, verbose_, stop_source_.get_token());
             if (state == StreamSession::ServerState::Ended) {
                 if (options_.recorder != nullptr) {
                     options_.recorder->fail("Device ended the recorded audio session");

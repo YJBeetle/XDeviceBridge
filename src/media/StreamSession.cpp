@@ -207,6 +207,10 @@ std::unique_ptr<StreamSession> StreamSession::start(remote::Device &device,
     if (start_status != nullptr) {
         *start_status = StartStatus::NotConfirmed;
     }
+    if (request.cancel.stop_requested()) {
+        err = "Media start cancelled";
+        return nullptr;
+    }
     const auto info = device.rsd().service(kDisplayService);
     if (!info) {
         // 错误中同时列出实际 RSD 目录，便于区分 DDI 状态与设备/系统服务差异。
@@ -247,6 +251,7 @@ std::unique_ptr<StreamSession> StreamSession::start(remote::Device &device,
                                      request.audio, request.client_session_uuid);
     xpc::Value output;
     if (on_conn != nullptr) {
+        std::stop_callback interrupt(request.cancel, [&] { on_conn->tcp().close(); });
         // 借用调用方持有的连接，不转移所有权。invoke() 的非 Ok 结果均表示起流失败；
         // 保留其错误信息，只有缺少诊断的传输错误才在此补充说明。
         const auto r = on_conn->invoke("com.apple.coredevice.feature.startmediastream",
@@ -261,7 +266,7 @@ std::unique_ptr<StreamSession> StreamSession::start(remote::Device &device,
     } else if (!device.feature(kDisplayService,
                                "com.apple.coredevice.feature.startmediastream",
                                "com.apple.coredevice.action.mediastreamstart", input, output, err,
-                               verbose, 30000)) {
+                               verbose, 30000, request.cancel)) {
         return nullptr;
     }
 
@@ -295,27 +300,32 @@ bool StreamSession::send_rtp(const std::vector<uint8_t> &payload, uint16_t peer_
     return socket_->send(payload, peer_port, err);
 }
 
-bool StreamSession::stop(remote::Device &device, std::string &err, bool verbose) const {
+bool StreamSession::stop(remote::Device &device, std::string &err, bool verbose, std::stop_token cancel) const {
+    std::stop_source stop;
+    std::stop_callback forward(cancel, [&] { stop.request_stop(); });
+    transport::IoBudget budget({std::chrono::seconds(2), [cancel] { return cancel.stop_requested(); }});
+    transport::BudgetWatchdog watch(budget, [&] { stop.request_stop(); });
     // feature() 为本次调用新建连接。已测设备复用起流连接发送 stop 曾出现服务异常，
     // 因此 stop 不使用原连接；stopAll 会停止设备上的所有媒体会话。
     auto input = xpc::make_dict();
     xpc::dict_set(input, "stopAll", xpc::make_bool(true));
     xpc::Value output;
-    return device.feature(kDisplayService,
+    const bool ok = device.feature(kDisplayService,
                           "com.apple.coredevice.feature.stopmediastream",
                           "com.apple.coredevice.action.mediastreamstop", input, output, err,
-                          verbose, 10000);
+                          verbose, 2000, stop.get_token());
+    return watch.finish(err, "Media cleanup") && ok;
 }
 
 uint16_t StreamSession::receiver_port() const { return socket_->local_port(); }
 
-xpc::Value StreamSession::status(remote::Device &device, std::string &err, bool verbose) {
+xpc::Value StreamSession::status(remote::Device &device, std::string &err, bool verbose, std::stop_token cancel) {
     auto input = xpc::make_dict();
     xpc::Value output;
     if (!device.feature(kDisplayService,
                         "com.apple.coredevice.feature.getmediastreamserverstatus",
                         "com.apple.coredevice.action.mediastreamstatus", input, output, err,
-                        verbose, 10000)) {
+                        verbose, 10000, cancel)) {
         return xpc::Value {};
     }
     return output;
@@ -323,8 +333,8 @@ xpc::Value StreamSession::status(remote::Device &device, std::string &err, bool 
 
 StreamSession::ServerState StreamSession::probe(remote::Device &device,
                                                 const std::vector<uint8_t> &session_uuid,
-                                                std::string &err, bool verbose) {
-    const xpc::Value output = status(device, err, verbose);
+                                                std::string &err, bool verbose, std::stop_token cancel) {
+    const xpc::Value output = status(device, err, verbose, cancel);
     if (output.type == xpc::Type::Null) {
         return ServerState::Unknown;
     }

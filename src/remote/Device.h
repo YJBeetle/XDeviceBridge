@@ -93,15 +93,16 @@ public:
 
     /// 使用新服务连接调用一次 CoreDevice feature，返回前释放连接。
     /// timeout_ms 传给 invoke，不包含建立 TCP/RemoteXPC 连接所需的等待。
+    /// cancel 覆盖本次独立连接的建连与调用，不关闭 Device 的其他服务。
     bool feature(std::string_view service_name, std::string_view feature_identifier,
                  std::string_view action_identifier, const xpc::Value &input, xpc::Value &output,
-                      std::string &err, bool verbose = false, int timeout_ms = 10000);
+                      std::string &err, bool verbose = false, int timeout_ms = 10000, std::stop_token cancel = {});
 
     /// 与 feature 相同，但区分成功、能力/业务错误及连接/传输错误，不自动重试。
     /// TransportError 只说明未取得有效回复，不能据此断定设备未执行请求。
     CallResult feature_call(std::string_view service_name, std::string_view feature_identifier,
                             std::string_view action_identifier, const xpc::Value &input,
-                            xpc::Value &output, std::string &err, bool verbose, int timeout_ms);
+                            xpc::Value &output, std::string &err, bool verbose, int timeout_ms, std::stop_token cancel = {});
 
 private:
     /// USB/Wi-Fi 共用的隧道收尾：构造 Stack、启动隧道线程，再连接 RSD 读取目录。

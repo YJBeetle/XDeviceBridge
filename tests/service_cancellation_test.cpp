@@ -1,6 +1,7 @@
 #include "MemoryTunnel.h"
 #include "http2/Framing.h"
 #include "remote/Device.h"
+#include "media/StreamSession.h"
 #include "remote/Pasteboard.h"
 #include "remote/Rsd.h"
 #include "transport/Tunnel.h"
@@ -350,6 +351,13 @@ void stopped_before_connect() {
     remote::Device device;
     require(!device.connect("not present", err, false, cancelled.get_token()) &&
             err == "Service connection cancelled", "Device pre-cancel precedes session lookup");
+    xpc::Value feature_output;
+    require(!device.feature("not present", "feature", "action", xpc::make_dict(), feature_output,
+                            err, false, 30000, cancelled.get_token()) && err == "Service connection cancelled",
+            "feature cancellation reaches the independent service connection before device contact");
+    media::StreamSession::Request media_request; media_request.cancel = cancelled.get_token();
+    require(!media::StreamSession::start(device, media_request, err) && err == "Media start cancelled",
+            "cancelled media start does not dereference an unestablished RSD session");
     require(!remote::Pasteboard::set_text(device, "中文🙂", err, false, cancelled.get_token()) &&
             err == "Clipboard request cancelled", "SET pre-cancel precedes device contact");
     std::string out = "preserved";

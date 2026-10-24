@@ -6,6 +6,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <stop_token>
 #include <vector>
 
 #include "decode/AudioDecoder.h"
@@ -223,6 +224,7 @@ private:
     /// stop() 在 join 后串行使用，析构或显式重复 stop 不重发设备请求。
     bool device_stop_attempted_ = false;
     std::thread worker_;
+    std::stop_source stop_source_;
     std::atomic<bool> stopping_ { false };
 
     mutable std::mutex live_mutex_;

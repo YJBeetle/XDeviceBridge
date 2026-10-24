@@ -164,6 +164,7 @@ bool FramePump::finish_recording(std::string &err) {
         std::lock_guard<std::mutex> lock(mutex_);
         stopping_ = true;
     }
+    stop_source_.request_stop();
     cv_.notify_all();
     if (worker_.joinable()) {
         worker_.join();
@@ -233,6 +234,7 @@ void FramePump::write_recording_nal(std::span<const uint8_t> bytes) {
 }
 
 bool FramePump::restart(std::string &err) {
+    if (stop_source_.stop_requested()) { err = "Video recovery cancelled"; return false; }
     if (worker_running_ && options_.recorder != nullptr) {
         // 重建 RPC 可能失败，必须先封闭旧录制 epoch，再停止旧设备会话。
         options_.recorder->fail("Video session was recreated during container recording");
@@ -250,7 +252,7 @@ bool FramePump::restart(std::string &err) {
 
     if (session_ != nullptr) {
         std::string stop_err;
-        if (!session_->stop(device_, stop_err, verbose_)) {
+        if (!session_->stop(device_, stop_err, verbose_, stop_source_.get_token())) {
             // 停止旧会话失败仍尝试新会话，保留错误供排查设备端残留状态。
             std::fprintf(stderr, "Failed to stop previous video session (still attempting restart): %s\n", stop_err.c_str());
         }
@@ -258,6 +260,7 @@ bool FramePump::restart(std::string &err) {
     }
 
     StreamSession::Request request;
+    request.cancel = stop_source_.get_token();
     request.display_id = options_.display_id;
     request.offer = options_.offer;
     // 请求租期使用统一常量，保证保活策略与设备执行的租期一致。
@@ -745,7 +748,7 @@ void FramePump::loop() {
         reviving_ = true;
         std::string perr;
         const auto state = StreamSession::probe(device_, session_->started().session_uuid, perr,
-                                                verbose_);
+                                                verbose_, stop_source_.get_token());
         if (state == StreamSession::ServerState::Alive) {
             // Alive 只证明设备会话存在。仅录制模式仍须等合法 IDR 完成恢复，
             // 不能用继续收到 SR 或状态 RPC 回复替代参数/图像头检查。

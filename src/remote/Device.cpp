@@ -361,12 +361,12 @@ CallResult Device::feature_call(std::string_view service_name,
                                 std::string_view feature_identifier,
                                 std::string_view action_identifier, const xpc::Value &input,
                                 xpc::Value &output, std::string &err, bool verbose,
-                                int timeout_ms) {
+                                int timeout_ms, std::stop_token cancel) {
     if (rsd_ && !rsd_->supports(service_name, feature_identifier)) {
         err = std::string(service_name) + " does not advertise feature " + std::string(feature_identifier);
         return CallResult::DeviceError;
     }
-    auto conn = connect(service_name, err, verbose);
+    auto conn = connect(service_name, err, verbose, cancel);
     if (conn == nullptr) {
         return CallResult::TransportError;
     }
@@ -375,9 +375,10 @@ CallResult Device::feature_call(std::string_view service_name,
 
 bool Device::feature(std::string_view service_name, std::string_view feature_identifier,
                      std::string_view action_identifier, const xpc::Value &input,
-                     xpc::Value &output, std::string &err, bool verbose, int timeout_ms) {
+                     xpc::Value &output, std::string &err, bool verbose, int timeout_ms,
+                     std::stop_token cancel) {
     return feature_call(service_name, feature_identifier, action_identifier, input, output, err,
-                        verbose, timeout_ms) == CallResult::Ok;
+                        verbose, timeout_ms, cancel) == CallResult::Ok;
 }
 
 }  // namespace xdb::remote
